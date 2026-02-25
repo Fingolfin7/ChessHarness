@@ -20,6 +20,7 @@ BoardInputMode = Literal["text", "image"]
 class GameConfig:
     max_retries: int = 3
     board_input: BoardInputMode = "text"
+    show_legal_moves: bool = True
     save_pgn: bool = True
     pgn_dir: str = "./games"
 
@@ -78,6 +79,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         game_cfg = GameConfig(
             max_retries=int(game_raw.get("max_retries", 3)),
             board_input=game_raw.get("board_input", "text"),
+            show_legal_moves=bool(game_raw.get("show_legal_moves", True)),
             save_pgn=bool(game_raw.get("save_pgn", True)),
             pgn_dir=game_raw.get("pgn_dir", "./games"),
         )

@@ -14,6 +14,11 @@ game:
   #            Falls back to text automatically if rendering fails.
   board_input: text
 
+  # Whether to include the list of legal moves in each prompt.
+  # true  — models see every legal move; reduces hallucination but uses more tokens.
+  # false — models must recall legal moves themselves; harder, tests raw chess ability.
+  show_legal_moves: true
+
   save_pgn: true
   pgn_dir: "./games"
 

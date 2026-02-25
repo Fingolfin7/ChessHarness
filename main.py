@@ -40,8 +40,8 @@ async def _main(stop_event: asyncio.Event) -> None:
     black_provider = create_provider(black_sel.provider_name, black_sel.model.id, config.providers)
 
     # Build players
-    white_player = create_player(white_sel.provider_name, white_sel.display_name, white_provider)
-    black_player = create_player(black_sel.provider_name, black_sel.display_name, black_provider)
+    white_player = create_player(white_sel.provider_name, white_sel.display_name, white_provider, config.game.show_legal_moves)
+    black_player = create_player(black_sel.provider_name, black_sel.display_name, black_provider, config.game.show_legal_moves)
 
     # Attach conversation logger to LLM players
     logger = ConversationLogger(

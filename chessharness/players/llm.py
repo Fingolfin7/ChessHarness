@@ -40,8 +40,7 @@ Your chosen move in UCI notation (e.g. e2e4, g1f3, e1g1, a7a8q)
 
 Rules for the ## Move section:
 - One move only, on its own line
-- It MUST be from the legal moves list you are given
-- Either SAN (e.g. e4, Nf3, cxd4, O-O, O-O-O, e8=Q) or UCI (e.g. e2e4, g1f3, e1g1, a7a8q) is accepted"""
+{legal_moves_rule}- Either SAN (e.g. e4, Nf3, cxd4, O-O, O-O-O, e8=Q) or UCI (e.g. e2e4, g1f3, e1g1, a7a8q) is accepted"""
 
 _USER = """\
 Position (FEN): {fen}
@@ -51,17 +50,14 @@ Board (you are {color_upper}, uppercase = White, lowercase = Black):
 
 Move history ({move_count} half-moves):
 {move_history}
-
-Legal moves ({legal_count}):
-{legal_moves_san}
-{retry_block}"""
+{legal_moves_block}{retry_block}"""
 
 _RETRY_BLOCK = """\
 
 ## Correction
 Your previous move "{prev_move}" was rejected.
 Reason: {prev_error}
-You must choose a different move from the legal moves list above.
+You must choose a different, valid move.
 """
 
 # Regexes used to find a move token in noisy model output
@@ -78,10 +74,12 @@ class LLMPlayer(Player):
         name: str,
         provider: LLMProvider,
         logger: ConversationLogger | None = None,
+        show_legal_moves: bool = True,
     ) -> None:
         super().__init__(name)
         self._provider = provider
         self._logger = logger
+        self._show_legal_moves = show_legal_moves
 
     async def get_move(self, state: GameState) -> MoveResponse:
         messages = self._build_messages(state)
@@ -108,9 +106,15 @@ class LLMPlayer(Player):
     # ------------------------------------------------------------------ #
 
     def _build_messages(self, state: GameState) -> list[Message]:
+        legal_moves_rule = (
+            "- It MUST be from the legal moves list you are given\n"
+            if self._show_legal_moves
+            else ""
+        )
         system_text = _SYSTEM.format(
             color=state.color,
             color_upper=state.color.upper(),
+            legal_moves_rule=legal_moves_rule,
         )
 
         retry_block = ""
@@ -126,14 +130,20 @@ class LLMPlayer(Player):
             else "(game just started)"
         )
 
+        legal_moves_block = (
+            f"Legal moves ({len(state.legal_moves_san)}):\n"
+            f"{', '.join(state.legal_moves_san)}\n"
+            if self._show_legal_moves
+            else ""
+        )
+
         user_text = _USER.format(
             fen=state.fen,
             color_upper=state.color.upper(),
             board_ascii=state.board_ascii,
             move_count=len(state.move_history_san),
             move_history=history_str,
-            legal_count=len(state.legal_moves_san),
-            legal_moves_san=", ".join(state.legal_moves_san),
+            legal_moves_block=legal_moves_block,
             retry_block=retry_block,
         )
 
