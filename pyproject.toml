@@ -1,0 +1,30 @@
+[project]
+name = "chessharness"
+version = "0.1.0"
+description = "Pit LLM providers against each other in chess"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.40",
+    "chess>=1.11.2",
+    "google-genai>=1.64.0",
+    "openai>=1.0",
+    "pillow>=10.0",
+    "pyyaml>=6.0",
+    "reportlab>=4.4.10",
+    "rich>=13.0",
+    "svglib>=1.6.0",   # PNG rendering for image mode — pure Python, no system deps
+]
+
+[project.optional-dependencies]
+# cairosvg is faster than svglib but requires GTK native libraries on Windows.
+# Only needed if you want to swap in the faster renderer.
+# Windows: install GTK runtime first: https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer
+# Then: uv add --optional vision cairosvg
+vision = ["cairosvg>=2.7"]
+
+[project.scripts]
+chessharness = "main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

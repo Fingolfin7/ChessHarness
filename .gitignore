@@ -1,0 +1,43 @@
+# Secrets — never commit real API keys
+config.yaml
+
+# Generated game files
+games/
+logs/
+
+# Claude directory
+claude/
+
+# Game logs
+*.pgn
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Type checker / linter caches
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# OS
+.DS_Store
+Thumbs.db

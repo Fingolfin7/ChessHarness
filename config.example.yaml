@@ -1,0 +1,56 @@
+# LLM Chess Harness — example configuration
+# Copy this file to config.yaml and fill in your API keys.
+# config.yaml is gitignored and should never be committed.
+#
+# At startup, you'll be shown a numbered list of all models defined here
+# and asked to pick which plays White and which plays Black.
+
+game:
+  # Maximum move attempts per turn before the player forfeits
+  max_retries: 3
+
+  # "text"  — FEN string + ASCII board (works with all models)
+  # "image" — rendered PNG board sent to vision-capable models
+  #            Falls back to text automatically if rendering fails.
+  board_input: text
+
+  save_pgn: true
+  pgn_dir: "./games"
+
+providers:
+  openai:
+    api_key: "YOUR_OPENAI_KEY"
+    models:
+      - id: gpt-4o
+        name: "GPT-4o"
+      - id: gpt-4o-mini
+        name: "GPT-4o Mini"
+      - id: o3-mini
+        name: "o3-mini"
+
+  anthropic:
+    api_key: "YOUR_ANTHROPIC_KEY"
+    models:
+      - id: claude-opus-4-6
+        name: "Claude Opus 4.6"
+      - id: claude-sonnet-4-6
+        name: "Claude Sonnet 4.6"
+      - id: claude-haiku-4-5-20251001
+        name: "Claude Haiku 4.5"
+
+  google:
+    api_key: "YOUR_GOOGLE_KEY"
+    models:
+      - id: gemini-2.0-flash
+        name: "Gemini 2.0 Flash"
+      - id: gemini-1.5-pro
+        name: "Gemini 1.5 Pro"
+
+  kimi:
+    api_key: "YOUR_KIMI_KEY"
+    base_url: "https://api.moonshot.cn/v1"
+    models:
+      - id: moonshot-v1-8k
+        name: "Kimi 8k"
+      - id: moonshot-v1-32k
+        name: "Kimi 32k"
