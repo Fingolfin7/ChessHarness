@@ -84,10 +84,10 @@ async def game_ws(ws: WebSocket) -> None:
         black_provider = create_provider(b["provider"], b["model_id"], config.providers)
 
         white_player = create_player(
-            w["provider"], w["name"], white_provider, config.game.show_legal_moves
+            w["provider"], w["name"], white_provider, config.game.show_legal_moves, config.game.move_timeout
         )
         black_player = create_player(
-            b["provider"], b["name"], black_provider, config.game.show_legal_moves
+            b["provider"], b["name"], black_provider, config.game.show_legal_moves, config.game.move_timeout
         )
 
         # Attach per-player loggers

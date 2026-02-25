@@ -14,11 +14,12 @@ Prompt design:
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING
 
 from chessharness.players.base import Player, GameState, MoveResponse
-from chessharness.providers.base import LLMProvider, Message
+from chessharness.providers.base import LLMProvider, Message, ProviderError
 
 if TYPE_CHECKING:
     from chessharness.conv_logger import ConversationLogger
@@ -75,11 +76,13 @@ class LLMPlayer(Player):
         provider: LLMProvider,
         logger: ConversationLogger | None = None,
         show_legal_moves: bool = True,
+        move_timeout: int = 120,
     ) -> None:
         super().__init__(name)
         self._provider = provider
         self._logger = logger
         self._show_legal_moves = show_legal_moves
+        self._move_timeout = move_timeout
         self._history: list[Message] = []  # grows as [user, assistant, user, assistant, ...]
 
     async def get_move(self, state: GameState) -> MoveResponse:
@@ -94,7 +97,14 @@ class LLMPlayer(Player):
                 messages=messages,
             )
 
-        raw = await self._provider.complete(messages)
+        try:
+            async with asyncio.timeout(self._move_timeout):
+                raw = await self._provider.complete(messages)
+        except TimeoutError:
+            raise ProviderError(
+                self._provider.__class__.__name__,
+                f"No response within {self._move_timeout}s timeout.",
+            )
 
         if self._logger:
             self._logger.log_response(raw=raw)

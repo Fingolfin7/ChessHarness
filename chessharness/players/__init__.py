@@ -31,6 +31,7 @@ def create_player(
     display_name: str,
     provider: LLMProvider | None = None,
     show_legal_moves: bool = True,
+    move_timeout: int = 120,
 ) -> Player:
     """
     Instantiate the correct Player.
@@ -48,4 +49,4 @@ def create_player(
                 raise ValueError(
                     f"LLMPlayer for provider '{provider_name}' requires a provider instance"
                 )
-            return LLMPlayer(name=display_name, provider=provider, show_legal_moves=show_legal_moves)
+            return LLMPlayer(name=display_name, provider=provider, show_legal_moves=show_legal_moves, move_timeout=move_timeout)
