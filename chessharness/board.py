@@ -68,11 +68,24 @@ class ChessBoard:
     # Move application                                                    #
     # ------------------------------------------------------------------ #
 
-    def try_parse_move(self, uci_str: str) -> chess.Move | None:
-        """Parse a UCI string, returning None on any parse error."""
+    def try_parse_move(self, move_str: str) -> chess.Move | None:
+        """
+        Parse a move string in either UCI or SAN notation.
+
+        Tries UCI first (e.g. e2e4, g1f3, a7a8q), then falls back to SAN
+        (e.g. e4, Nf3, cxd4, O-O). SAN parsing requires the current board
+        position, so it lives here rather than in the player layer.
+
+        Returns None if neither format matches.
+        """
+        s = move_str.strip()
         try:
-            return chess.Move.from_uci(uci_str.strip())
+            return chess.Move.from_uci(s)
         except (ValueError, chess.InvalidMoveError):
+            pass
+        try:
+            return self._board.parse_san(s)
+        except (ValueError, chess.InvalidMoveError, chess.AmbiguousMoveError):
             return None
 
     def is_legal(self, move: chess.Move) -> bool:

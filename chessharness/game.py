@@ -121,8 +121,8 @@ async def run_game(
             parsed = board.try_parse_move(response.move)
             if parsed is None:
                 error = (
-                    f"'{response.move}' is not valid UCI notation. "
-                    "Expected format: <from><to>[promotion], e.g. e2e4 or a7a8q"
+                    f"'{response.move}' is not a recognised move. "
+                    "Use UCI (e.g. e2e4, a7a8q) or SAN (e.g. e4, Nf3, cxd4, O-O)."
                 )
                 yield InvalidMoveEvent(
                     color=current_color,

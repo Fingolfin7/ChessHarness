@@ -39,10 +39,9 @@ Think through the position: threats, tactics, your plan. Be concise.
 Your chosen move in UCI notation (e.g. e2e4, g1f3, e1g1, a7a8q)
 
 Rules for the ## Move section:
-- One move only, on its own line, in UCI format: <from_square><to_square>[promotion]
+- One move only, on its own line
 - It MUST be from the legal moves list you are given
-- Castling: e1g1 (white kingside), e1c1 (white queenside), e8g8, e8c8
-- Promotion: append the piece letter, e.g. a7a8q (queen), a7a8r (rook)"""
+- Either SAN (e.g. e4, Nf3, cxd4, O-O, O-O-O, e8=Q) or UCI (e.g. e2e4, g1f3, e1g1, a7a8q) is accepted"""
 
 _USER = """\
 Position (FEN): {fen}
@@ -65,8 +64,10 @@ Reason: {prev_error}
 You must choose a different move from the legal moves list above.
 """
 
-# Regex to find a UCI move token anywhere in text (fallback)
+# Regexes used to find a move token in noisy model output
 _UCI_RE = re.compile(r"\b([a-h][1-8][a-h][1-8][qrbnQRBN]?)\b")
+# SAN pattern: optional piece, destination square, optional promotion/annotation
+_SAN_RE = re.compile(r"\b([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|O-O-O|O-O)\b")
 
 
 class LLMPlayer(Player):
@@ -182,25 +183,39 @@ def _parse_response(raw: str) -> tuple[str, str]:
         elif "move" in header and "correction" not in header:
             move_text = content
 
-    uci = _extract_uci(move_text if move_text else raw)
-    return reasoning, uci
+    move = _extract_move(move_text if move_text else raw)
+    return reasoning, move
 
 
-def _extract_uci(text: str) -> str:
+def _extract_move(text: str) -> str:
     """
-    Extract a UCI move token from arbitrary text.
+    Extract a move token (UCI or SAN) from arbitrary model output.
 
-    Strips common prefixes, applies UCI regex, falls back to first token.
+    Strategy:
+      1. Strip whitespace and common prefixes models add despite instructions.
+      2. Try UCI regex (unambiguous: source+dest squares).
+      3. Try SAN regex (piece moves, captures, castling).
+      4. Fall back to the first whitespace-delimited token.
     """
-    cleaned = text.strip().lower()
+    cleaned = text.strip()
 
+    # Strip common prefixes — check case-insensitively but preserve original case
+    # for SAN (Nf3 ≠ nf3)
+    lower = cleaned.lower()
     for prefix in ("my move:", "move:", "i play", "i choose", "best move:", "**", "*"):
-        if cleaned.startswith(prefix):
+        if lower.startswith(prefix):
             cleaned = cleaned[len(prefix):].strip()
+            lower = cleaned.lower()
 
-    match = _UCI_RE.search(cleaned)
-    if match:
-        return match.group(1).lower()
+    # UCI is case-insensitive and unambiguous — lower it for consistency
+    uci_match = _UCI_RE.search(cleaned)
+    if uci_match:
+        return uci_match.group(1).lower()
+
+    # SAN must preserve case (N, Q etc. are piece indicators)
+    san_match = _SAN_RE.search(cleaned)
+    if san_match:
+        return san_match.group(1)
 
     tokens = cleaned.split()
     return tokens[0] if tokens else cleaned
