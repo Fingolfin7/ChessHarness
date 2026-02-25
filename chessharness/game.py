@@ -35,6 +35,7 @@ from chessharness.events import (
     GameOverEvent,
 )
 from chessharness.players.base import Player, GameState
+from chessharness.providers.base import ProviderError
 from chessharness.renderer import render_ascii, render_png, is_png_available
 
 
@@ -115,7 +116,36 @@ async def run_game(
                 attempt_num=attempt,
             )
 
-            response = await current_player.get_move(state)
+            try:
+                response = await current_player.get_move(state)
+            except ProviderError as exc:
+                error = f"API error: {exc}"
+                yield InvalidMoveEvent(
+                    color=current_color,
+                    attempted_move="",
+                    raw_response="",
+                    reasoning="",
+                    error=error,
+                    attempt_num=attempt,
+                )
+                previous_invalid = ""
+                previous_error = error
+                continue
+
+            # --- Validate: non-empty response ---
+            if not response.raw.strip():
+                error = "Model returned an empty response."
+                yield InvalidMoveEvent(
+                    color=current_color,
+                    attempted_move="",
+                    raw_response="",
+                    reasoning="",
+                    error=error,
+                    attempt_num=attempt,
+                )
+                previous_invalid = ""
+                previous_error = error
+                continue
 
             # --- Validate: UCI format ---
             parsed = board.try_parse_move(response.move)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from chessharness.config import load_config
@@ -43,16 +44,18 @@ async def _main(stop_event: asyncio.Event) -> None:
     white_player = create_player(white_sel.provider_name, white_sel.display_name, white_provider, config.game.show_legal_moves)
     black_player = create_player(black_sel.provider_name, black_sel.display_name, black_provider, config.game.show_legal_moves)
 
-    # Attach conversation logger to LLM players
-    logger = ConversationLogger(
-        log_dir=Path("./logs"),
-        white_name=white_sel.display_name,
-        black_name=black_sel.display_name,
-    )
-    for player in (white_player, black_player):
+    # Attach per-player conversation loggers (shared game_id keeps filenames paired)
+    log_dir = Path("./logs")
+    game_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for player, color in ((white_player, "white"), (black_player, "black")):
         if isinstance(player, LLMPlayer):
-            player._logger = logger
-    console.print(f"[dim]Logging to: {logger.path}[/]\n")
+            player._logger = ConversationLogger(
+                log_dir=log_dir,
+                game_id=game_id,
+                player_name=player.name,
+                color=color,
+            )
+    console.print(f"[dim]Logs: {log_dir}/game_{game_id}_white_*.log / ..._black_*.log[/]\n")
 
     # Run game — consume events and display them
     async for event in run_game(config, white_player, black_player, stop_event=stop_event):

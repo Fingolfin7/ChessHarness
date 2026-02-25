@@ -61,10 +61,15 @@ class GoogleProvider(LLMProvider):
     def _build_contents(self, messages: list[Message]) -> list:
         """
         Build the contents list for the google-genai SDK.
-        For vision, include inline image parts.
+
+        Each message becomes a types.Content with the correct role so that
+        multi-turn conversation history is preserved.  Google uses "model"
+        for assistant turns instead of "assistant".
         """
-        parts: list = []
+        contents = []
         for msg in messages:
+            role = "model" if msg.role == "assistant" else "user"
+            parts: list = []
             if msg.image_bytes and self.supports_vision:
                 parts.append(
                     types.Part.from_bytes(
@@ -72,5 +77,6 @@ class GoogleProvider(LLMProvider):
                         mime_type="image/png",
                     )
                 )
-            parts.append(msg.content)
-        return parts
+            parts.append(types.Part(text=msg.content))
+            contents.append(types.Content(role=role, parts=parts))
+        return contents

@@ -80,13 +80,14 @@ class LLMPlayer(Player):
         self._provider = provider
         self._logger = logger
         self._show_legal_moves = show_legal_moves
+        self._history: list[Message] = []  # grows as [user, assistant, user, assistant, ...]
 
     async def get_move(self, state: GameState) -> MoveResponse:
         messages = self._build_messages(state)
+        current_user_msg = messages[-1]  # the freshly-built user turn
 
         if self._logger:
             self._logger.log_request(
-                player_name=self.name,
                 color=state.color,
                 move_number=state.move_number,
                 attempt=state.attempt_num,
@@ -96,7 +97,18 @@ class LLMPlayer(Player):
         raw = await self._provider.complete(messages)
 
         if self._logger:
-            self._logger.log_response(player_name=self.name, raw=raw)
+            self._logger.log_response(raw=raw)
+
+        # Append this exchange to history using a compact turn label instead of
+        # the full board text — the current board state is re-sent fresh each turn
+        # so replaying it in every historical user slot wastes tokens with no benefit.
+        turn_label = (
+            f"[Move {state.move_number} — {state.color.upper()}"
+            + (f" | Attempt {state.attempt_num}" if state.attempt_num > 1 else "")
+            + "]"
+        )
+        self._history.append(Message(role="user", content=turn_label))
+        self._history.append(Message(role="assistant", content=raw))
 
         reasoning, move = _parse_response(raw)
         return MoveResponse(raw=raw, move=move, reasoning=reasoning)
@@ -155,6 +167,7 @@ class LLMPlayer(Player):
 
         return [
             Message(role="system", content=system_text),
+            *self._history,
             Message(role="user", content=user_text, image_bytes=image_bytes),
         ]
 
