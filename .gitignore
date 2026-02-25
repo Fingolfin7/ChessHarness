@@ -5,14 +5,14 @@ config.yaml
 games/
 logs/
 
-# Claude directory
-claude/
+# Claude
+.claude/
 
 # Game logs
 *.pgn
 *.log
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -23,21 +23,30 @@ dist/
 build/
 *.egg
 
-# Virtual environment
+# uv cache (lock file should be committed for reproducibility)
+.uv/
+
+# Virtual environments
 .venv/
 venv/
 env/
 
-# IDE
+# ── Frontend (Node / Vite / React) ────────────────────────────────────────────
+frontend/node_modules/
+frontend/.vite/
+frontend/dist/
+*.local
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.iml
 
-# Type checker / linter caches
+# ── Type checker / linter caches ──────────────────────────────────────────────
 .mypy_cache/
 .ruff_cache/
 .pyright/
 
-# OS
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
