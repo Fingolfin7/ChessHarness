@@ -66,13 +66,32 @@ providers:
         name: "Kimi 32k"
 
 
-  # GitHub Copilot-compatible bridge (OpenAI-compatible endpoint)
+  # GitHub Models (sign in via the web UI — no bearer_token needed here)
+  # Model IDs: use the bare name from the GitHub Models catalog (no "publisher/" prefix)
+  # Full catalog: https://github.com/marketplace/models
   copilot:
-    bearer_token: "YOUR_COPILOT_BEARER_TOKEN"
-    base_url: "https://your-copilot-bridge.example/v1"
+    base_url: "https://models.inference.ai.azure.com"
     models:
       - id: gpt-4.1
-        name: "Copilot GPT-4.1"
+        name: "GPT-4.1"
+      - id: gpt-4o
+        name: "GPT-4o"
+      - id: gpt-4o-mini
+        name: "GPT-4o Mini"
+      - id: o3-mini
+        name: "o3-mini"
+      - id: claude-sonnet-4-5
+        name: "Claude Sonnet 4.5"
+      - id: claude-3-5-sonnet
+        name: "Claude 3.5 Sonnet"
+      - id: Llama-4-Scout-17B-16E-Instruct
+        name: "Llama 4 Scout"
+      - id: Llama-3.3-70B-Instruct
+        name: "Llama 3.3 70B"
+      - id: Mistral-large-2411
+        name: "Mistral Large"
+      - id: Phi-4
+        name: "Phi-4"
 
   # Groq (OpenAI-compatible API)
   groq:

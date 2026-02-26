@@ -95,6 +95,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         providers_raw = raw.get("providers") or {}
         providers: dict[str, ProviderConfig] = {}
         for provider_name, prov_raw in providers_raw.items():
+            prov_raw = prov_raw or {}
             models = [
                 ModelEntry(id=str(m["id"]), name=str(m["name"]))
                 for m in prov_raw.get("models", [])
