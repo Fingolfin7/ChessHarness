@@ -144,14 +144,6 @@ export default function ModelPicker({
   return (
     <div className="setup-screen">
       <div className="setup-card">
-        <div className="setup-logo">
-          <span className="setup-king">♔</span>
-          <h1>ChessHarness</h1>
-          <p className="setup-subtitle">LLM Chess Arena</p>
-        </div>
-
-        {error && <div className="setup-error">{error}</div>}
-
         {signinProviders.length > 0 && (
           <div className="auth-panel">
             <div className="auth-title">Providers</div>
@@ -277,59 +269,69 @@ export default function ModelPicker({
           </div>
         )}
 
-        <div className="player-selects">
-          <div className="player-select">
-            <label>
-              <span className="select-piece white-piece">♔</span>
-              White
-            </label>
-            <select value={white} onChange={e => setWhite(e.target.value)} disabled={!authReady}>
-              <option value="">
-                {!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider above' : 'Select model…'}
-              </option>
-              {Object.entries(modelsByProvider).map(([provider, pModels]) => (
-                <optgroup key={provider} label={provider}>
-                  {pModels.map(m => (
-                    <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
-                      {m.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+        <div className="setup-main">
+          <div className="setup-logo">
+            <span className="setup-king">♔</span>
+            <h1>ChessHarness</h1>
+            <p className="setup-subtitle">LLM Chess Arena</p>
           </div>
 
-          <div className="vs-divider">VS</div>
+          {error && <div className="setup-error">{error}</div>}
 
-          <div className="player-select">
-            <label>
-              <span className="select-piece black-piece">♚</span>
-              Black
-            </label>
-            <select value={black} onChange={e => setBlack(e.target.value)} disabled={!authReady}>
-              <option value="">
-                {!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider above' : 'Select model…'}
-              </option>
-              {Object.entries(modelsByProvider).map(([provider, pModels]) => (
-                <optgroup key={provider} label={provider}>
-                  {pModels.map(m => (
-                    <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
-                      {m.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+          <div className="player-selects">
+            <div className="player-select">
+              <label>
+                <span className="select-piece white-piece">♔</span>
+                White
+              </label>
+              <select value={white} onChange={e => setWhite(e.target.value)} disabled={!authReady}>
+                <option value="">
+                  {!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider' : 'Select model…'}
+                </option>
+                {Object.entries(modelsByProvider).map(([provider, pModels]) => (
+                  <optgroup key={provider} label={provider}>
+                    {pModels.map(m => (
+                      <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+
+            <div className="vs-divider">VS</div>
+
+            <div className="player-select">
+              <label>
+                <span className="select-piece black-piece">♚</span>
+                Black
+              </label>
+              <select value={black} onChange={e => setBlack(e.target.value)} disabled={!authReady}>
+                <option value="">
+                  {!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider' : 'Select model…'}
+                </option>
+                {Object.entries(modelsByProvider).map(([provider, pModels]) => (
+                  <optgroup key={provider} label={provider}>
+                    {pModels.map(m => (
+                      <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
           </div>
+
+          <button
+            className="start-btn"
+            onClick={handleStart}
+            disabled={!white || !black}
+          >
+            Start Game
+          </button>
         </div>
-
-        <button
-          className="start-btn"
-          onClick={handleStart}
-          disabled={!white || !black}
-        >
-          Start Game
-        </button>
       </div>
     </div>
   )
