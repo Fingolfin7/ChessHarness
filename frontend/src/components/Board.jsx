@@ -1,6 +1,23 @@
+import { useRef, useState, useEffect } from 'react'
 import { Chessboard } from 'react-chessboard'
 
 export default function Board({ fen, lastMove }) {
+  const wrapperRef = useRef(null)
+  const [boardWidth, setBoardWidth] = useState(500)
+
+  useEffect(() => {
+    if (!wrapperRef.current) return
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setBoardWidth(Math.floor(entry.contentRect.width))
+      }
+    })
+    ro.observe(wrapperRef.current)
+    // Set initial size immediately
+    setBoardWidth(Math.floor(wrapperRef.current.offsetWidth))
+    return () => ro.disconnect()
+  }, [])
+
   const squareStyles = {}
   if (lastMove) {
     squareStyles[lastMove.from] = { backgroundColor: 'rgba(255, 255, 100, 0.45)' }
@@ -8,10 +25,10 @@ export default function Board({ fen, lastMove }) {
   }
 
   return (
-    <div className="board-wrapper">
+    <div ref={wrapperRef} className="board-wrapper">
       <Chessboard
         position={fen}
-        boardWidth={500}
+        boardWidth={boardWidth}
         arePiecesDraggable={false}
         customSquareStyles={squareStyles}
         customDarkSquareStyle={{ backgroundColor: '#b58863' }}

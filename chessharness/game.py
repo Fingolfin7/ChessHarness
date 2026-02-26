@@ -185,6 +185,7 @@ async def run_game(
                 continue
 
             # --- Apply the move ---
+            move_number_before = state.move_number  # capture before push (fullmove_number increments after black)
             san = board.push_move(parsed)
             yield MoveAppliedEvent(
                 color=current_color,
@@ -195,7 +196,7 @@ async def run_game(
                 fen_after=board.fen,
                 board_ascii_after=render_ascii(board._board),
                 is_check=board.is_check,
-                move_number=board.fullmove_number,
+                move_number=move_number_before,
             )
 
             # Announce check (if the game isn't already over)

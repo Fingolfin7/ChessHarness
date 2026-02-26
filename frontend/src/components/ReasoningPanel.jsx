@@ -1,26 +1,35 @@
 import { useEffect, useRef } from 'react'
 
-export default function ReasoningPanel({ color, name, reasoning, isThinking }) {
+export default function ReasoningPanel({ color, name, reasoning, isThinking, isReviewing }) {
   const scrollRef = useRef(null)
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (!isReviewing && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [reasoning])
+  }, [reasoning, isReviewing])
 
   return (
-    <div className={`reasoning-panel ${color}`}>
+    <div className={`reasoning-panel ${color} ${isReviewing ? 'reviewing' : ''}`}>
       <div className="reasoning-header">
         <span className="reasoning-title">
           {color === 'white' ? '♔' : '♚'} {name ?? '—'}
         </span>
-        {isThinking && <span className="thinking-badge">thinking…</span>}
+        <div className="reasoning-badges">
+          {isThinking  && <span className="thinking-badge">thinking…</span>}
+          {isReviewing && <span className="review-badge">reviewing</span>}
+        </div>
       </div>
       <div className="reasoning-body" ref={scrollRef}>
-        {reasoning
-          ? <p>{reasoning}</p>
-          : <p className="reasoning-placeholder">Awaiting first move…</p>
+        {isThinking
+          ? <div className="typing-indicator">
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+            </div>
+          : reasoning
+            ? <p>{reasoning}</p>
+            : <p className="reasoning-placeholder">Awaiting first move…</p>
         }
       </div>
     </div>

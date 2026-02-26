@@ -11,8 +11,9 @@ const INITIAL_STATE = {
   thinking: false,
   reasoning: { white: '', black: '' },
   moves: [],            // [{ number, white: {san, reasoning}, black: {san, reasoning} }]
-  invalidAttempt: null, // { color, move, error, attempt }
-  result: null,         // { result, reason, winner, pgn }
+  plies: [],            // flat: [{color, san, reasoning, fen_after, from, to, moveNumber}]
+  invalidAttempt: null,
+  result: null,
   error: null,
 }
 
@@ -73,10 +74,19 @@ function applyEvent(state, event) {
           [event.color]: event.reasoning,
         },
         moves: updateMoves(state.moves, event),
+        plies: [...state.plies, {
+          color: event.color,
+          san: event.move_san,
+          reasoning: event.reasoning,
+          fen_after: event.fen_after,
+          from: event.move_uci.slice(0, 2),
+          to: event.move_uci.slice(2, 4),
+          moveNumber: event.move_number,
+        }],
       }
 
     case 'CheckEvent':
-      return state   // board already updated via MoveAppliedEvent; could highlight king later
+      return state
 
     case 'GameOverEvent':
       return {
@@ -116,22 +126,10 @@ export default function App() {
     const ws = new WebSocket(`${protocol}//${location.host}/ws/game`)
     wsRef.current = ws
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'start', white, black }))
-    }
-
-    ws.onmessage = (e) => {
-      const event = JSON.parse(e.data)
-      setState(s => applyEvent(s, event))
-    }
-
-    ws.onerror = () => {
-      setState(s => ({ ...s, error: 'WebSocket connection error.', thinking: false }))
-    }
-
-    ws.onclose = () => {
-      setState(s => s.phase === 'playing' ? { ...s, phase: 'over' } : s)
-    }
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'start', white, black }))
+    ws.onmessage = (e) => setState(s => applyEvent(s, JSON.parse(e.data)))
+    ws.onerror = () => setState(s => ({ ...s, error: 'WebSocket connection error.', thinking: false }))
+    ws.onclose = () => setState(s => s.phase === 'playing' ? { ...s, phase: 'over' } : s)
   }, [])
 
   const stopGame = useCallback(() => {
@@ -148,11 +146,5 @@ export default function App() {
     return <ModelPicker models={models} onStart={startGame} error={state.error} />
   }
 
-  return (
-    <GameView
-      state={state}
-      onStop={stopGame}
-      onNewGame={newGame}
-    />
-  )
+  return <GameView state={state} onStop={stopGame} onNewGame={newGame} />
 }
