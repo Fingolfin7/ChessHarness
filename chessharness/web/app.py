@@ -42,35 +42,12 @@ app = FastAPI(title="ChessHarness")
 
 
 async def _fetch_copilot_models() -> list[dict]:
-    """Fetch available model names from the GitHub Models catalog.
-
-    Returns a list of {"id": str, "name": str} dicts, or [] on failure.
-    """
-    try:
-        async with asyncio.timeout(10):
-            github_token = auth_tokens.get("copilot__github_token")
-            raw = await _github_http(
-                "GET",
-                "https://models.github.ai/catalog/models",
-                token=github_token,
-            )
-        items = raw if isinstance(raw, list) else raw.get("models", raw.get("data", []))
-        result = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            raw_id = item.get("id") or item.get("name")
-            if not raw_id:
-                continue
-            # Catalog IDs use "publisher/model" format (e.g. "openai/gpt-4.1");
-            # the inference API at models.inference.ai.azure.com expects just the
-            # model name part ("gpt-4.1").
-            mid = raw_id.split("/", 1)[-1] if "/" in raw_id else raw_id
-            mname = item.get("name") or mid
-            result.append({"id": mid, "name": mname})
-        return result
-    except Exception:
-        return []
+    """Return the GitHub Models available via models.inference.ai.azure.com."""
+    return [
+        {"id": "gpt-5.2",                "name": "GPT-5.2"},
+        {"id": "claude-opus-4-5",        "name": "Claude Opus 4.5"},
+        {"id": "gemini-3-flash-preview", "name": "Gemini 3 Flash Preview"},
+    ]
 
 
 _OPENAI_CHAT_PREFIXES = ("gpt-", "chatgpt-", "o1", "o3", "o4")

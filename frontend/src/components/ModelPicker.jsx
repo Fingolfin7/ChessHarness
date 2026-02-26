@@ -88,13 +88,13 @@ export default function ModelPicker({
   // ── Copilot device flow ────────────────────────────────────────────────── //
 
   const cancelCopilotFlow = useCallback(() => {
-    clearInterval(pollTimerRef.current)
+    clearTimeout(pollTimerRef.current)
     pollTimerRef.current = null
     setCopilotFlow(null)
   }, [])
 
-  // Clean up interval on unmount
-  useEffect(() => () => clearInterval(pollTimerRef.current), [])
+  // Clean up on unmount
+  useEffect(() => () => clearTimeout(pollTimerRef.current), [])
 
   const startCopilotFlow = async () => {
     const result = await onCopilotDeviceStart()
@@ -109,13 +109,18 @@ export default function ModelPicker({
       status: 'waiting',
     })
     const intervalMs = (result.interval ?? 5) * 1000
+
     const stopPoll = (newFlowState) => {
-      clearInterval(pollTimerRef.current)
+      clearTimeout(pollTimerRef.current)
       pollTimerRef.current = null
       if (newFlowState) setCopilotFlow(f => ({ ...f, ...newFlowState }))
     }
 
-    pollTimerRef.current = setInterval(async () => {
+    // Use recursive setTimeout instead of setInterval so only one request is
+    // ever in-flight at a time. setInterval with an async callback can fire
+    // again before the previous request finishes, causing concurrent polls that
+    // race each other on the same device code.
+    const doPoll = async () => {
       const poll = await onCopilotDevicePoll(result.device_code)
       if (poll.status === 'connected') {
         stopPoll(null)
@@ -126,11 +131,14 @@ export default function ModelPicker({
       } else if (poll.status === 'error') {
         stopPoll({ status: 'error', error: poll.error || 'Unknown error.' })
       } else if (poll.status !== 'pending') {
-        // Catch-all: unexpected response (e.g. server error) — stop polling
         stopPoll({ status: 'error', error: poll.error || `Unexpected response: ${JSON.stringify(poll)}` })
+      } else {
+        // Still pending — schedule next poll only after this one completed
+        pollTimerRef.current = setTimeout(doPoll, intervalMs)
       }
-      // 'pending' → keep polling
-    }, intervalMs)
+    }
+
+    pollTimerRef.current = setTimeout(doPoll, intervalMs)
   }
 
   return (
