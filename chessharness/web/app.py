@@ -64,12 +64,27 @@ app = FastAPI(title="ChessHarness")
 
 
 async def _fetch_copilot_models() -> list[dict]:
-    """Return the GitHub Models available via models.inference.ai.azure.com."""
-    return [
-        {"id": "gpt-5.2",                "name": "GPT-5.2"},
-        {"id": "claude-opus-4-5",        "name": "Claude Opus 4.5"},
-        {"id": "gemini-3-flash-preview", "name": "Gemini 3 Flash Preview"},
-    ]
+    """Fetch available models from the public GitHub Models catalog.
+
+    The catalog returns IDs in "publisher/model-name" format (e.g. "openai/gpt-4.1").
+    The inference endpoint at models.inference.ai.azure.com expects only the
+    model-name part (e.g. "gpt-4.1"), so we strip the publisher prefix.
+    """
+    data = await _http_get("https://models.github.ai/catalog/models")
+    if not isinstance(data, list):
+        return []
+    result = []
+    for m in data:
+        if not isinstance(m, dict):
+            continue
+        raw_id = m.get("id", "")
+        if not raw_id:
+            continue
+        # Strip "publisher/" prefix — inference API uses the bare model name
+        model_id = raw_id.split("/", 1)[-1]
+        name = m.get("name", model_id)
+        result.append({"id": model_id, "name": name})
+    return result
 
 
 _OPENAI_CHAT_PREFIXES = ("gpt-", "chatgpt-", "o1", "o3", "o4")

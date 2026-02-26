@@ -16,7 +16,8 @@
       "Bash(head:*)",
       "Bash(cd:*)",
       "Bash(cd C:\\\\Users\\\\mushu\\\\PycharmProjects\\\\ChessHarness:*)",
-      "WebFetch(domain:models.github.ai)"
+      "WebFetch(domain:models.github.ai)",
+      "Bash(curl:*)"
     ]
   }
 }
