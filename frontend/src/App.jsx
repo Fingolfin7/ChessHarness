@@ -169,6 +169,10 @@ export default function App() {
   }, [])
 
 
+  const refreshModels = useCallback(() => {
+    fetch('/api/models').then(r => r.json()).then(setModels).catch(() => {})
+  }, [])
+
   const connectProvider = useCallback(async (provider, token) => {
     try {
       const res = await fetch('/api/auth/connect', {
@@ -181,11 +185,12 @@ export default function App() {
         return { ok: false, error: data.detail || 'Connection failed.' }
       }
       setAuthProviders(prev => ({ ...prev, [provider]: true }))
+      refreshModels()
       return { ok: true }
     } catch {
       return { ok: false, error: 'Network error.' }
     }
-  }, [])
+  }, [refreshModels])
 
   const startCopilotDeviceFlow = useCallback(async () => {
     try {
@@ -211,12 +216,15 @@ export default function App() {
       }
       if (data.status === 'connected') {
         setAuthProviders(prev => ({ ...prev, copilot: true }))
+        // Models are fetched in a background task on the server; give it a moment
+        // then refresh so the dropdowns populate without requiring a page reload.
+        setTimeout(refreshModels, 1500)
       }
       return data
     } catch {
       return { status: 'error', error: 'Network error.' }
     }
-  }, [])
+  }, [refreshModels])
 
   const disconnectProvider = useCallback(async (provider) => {
     try {

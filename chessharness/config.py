@@ -82,7 +82,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         raw = yaml.safe_load(f)
 
     try:
-        game_raw = raw.get("game", {})
+        game_raw = raw.get("game") or {}
         game_cfg = GameConfig(
             max_retries=int(game_raw.get("max_retries", 3)),
             board_input=game_raw.get("board_input", "text"),
@@ -92,7 +92,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
             pgn_dir=game_raw.get("pgn_dir", "./games"),
         )
 
-        providers_raw = raw.get("providers", {})
+        providers_raw = raw.get("providers") or {}
         providers: dict[str, ProviderConfig] = {}
         for provider_name, prov_raw in providers_raw.items():
             models = [
@@ -122,11 +122,5 @@ def _validate(config: Config) -> None:
         )
     if config.game.max_retries < 1:
         raise ValueError("game.max_retries must be >= 1")
-    if not config.providers:
-        raise ValueError("At least one provider must be defined in config.yaml")
-
-    total_models = sum(len(p.models) for p in config.providers.values())
-    if total_models == 0:
-        raise ValueError(
-            "No models defined. Add at least one model entry under a provider in config.yaml."
-        )
+    # Providers and their model lists are now optional in config.yaml.
+    # Connections and model discovery are handled at runtime via the web UI.

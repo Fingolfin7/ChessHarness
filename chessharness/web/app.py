@@ -38,93 +38,186 @@ config = load_config()
 auth_tokens = load_auth_tokens()
 
 
-async def _refresh_copilot_token() -> bool:
-    """Exchange the stored GitHub OAuth token for a fresh Copilot API token.
+app = FastAPI(title="ChessHarness")
 
-    The GitHub OAuth token obtained via the device flow is long-lived (doesn't
-    expire unless revoked).  The Copilot internal token it can be exchanged for
-    is short-lived (~30 min).  Calling this on startup and on verification failure
-    keeps the Copilot token fresh without asking the user to re-authenticate.
 
-    Returns True if auth_tokens was updated.
+async def _fetch_copilot_models() -> list[dict]:
+    """Fetch available model names from the GitHub Models catalog.
+
+    Returns a list of {"id": str, "name": str} dicts, or [] on failure.
     """
-    github_token = auth_tokens.get("copilot__github_token")
-    if not github_token:
-        return False
     try:
-        async with asyncio.timeout(8):
-            result = await _github_http(
+        async with asyncio.timeout(10):
+            github_token = auth_tokens.get("copilot__github_token")
+            raw = await _github_http(
                 "GET",
-                "https://api.github.com/copilot_internal/v2/token",
+                "https://models.github.ai/catalog/models",
                 token=github_token,
             )
-        new_token = result.get("token")
+        items = raw if isinstance(raw, list) else raw.get("models", raw.get("data", []))
+        result = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            raw_id = item.get("id") or item.get("name")
+            if not raw_id:
+                continue
+            # Catalog IDs use "publisher/model" format (e.g. "openai/gpt-4.1");
+            # the inference API at models.inference.ai.azure.com expects just the
+            # model name part ("gpt-4.1").
+            mid = raw_id.split("/", 1)[-1] if "/" in raw_id else raw_id
+            mname = item.get("name") or mid
+            result.append({"id": mid, "name": mname})
+        return result
     except Exception:
-        new_token = None
-    # If exchange failed, fall back to the GitHub OAuth token itself
-    auth_tokens["copilot"] = new_token or github_token
-    save_auth_tokens(auth_tokens)
-    return True
+        return []
 
 
-app = FastAPI(title="ChessHarness")
+_OPENAI_CHAT_PREFIXES = ("gpt-", "chatgpt-", "o1", "o3", "o4")
+
+
+async def _fetch_provider_models(provider_name: str) -> list[dict]:
+    """Fetch the model list for a known provider. Returns [] on failure."""
+    token = auth_tokens.get(provider_name)
+    if not token:
+        return []
+    try:
+        async with asyncio.timeout(10):
+            if provider_name == "openai":
+                data = await _http_get(
+                    "https://api.openai.com/v1/models",
+                    bearer_token=token,
+                )
+                items = data.get("data", []) if isinstance(data, dict) else []
+                return sorted(
+                    [
+                        {"id": m["id"], "name": m["id"]}
+                        for m in items
+                        if isinstance(m, dict)
+                        and any(m.get("id", "").startswith(p) for p in _OPENAI_CHAT_PREFIXES)
+                    ],
+                    key=lambda m: m["id"],
+                )
+
+            elif provider_name == "anthropic":
+                data = await _http_get(
+                    "https://api.anthropic.com/v1/models",
+                    api_key_header="x-api-key",
+                    api_key=token,
+                    extra_headers={"anthropic-version": "2023-06-01"},
+                )
+                items = data.get("data", []) if isinstance(data, dict) else []
+                return [
+                    {"id": m["id"], "name": m.get("display_name", m["id"])}
+                    for m in items
+                    if isinstance(m, dict) and "id" in m
+                ]
+
+            elif provider_name == "google":
+                url = (
+                    "https://generativelanguage.googleapis.com/v1beta/models?"
+                    + urllib.parse.urlencode({"key": token})
+                )
+                data = await _http_get(url)
+                items = data.get("models", []) if isinstance(data, dict) else []
+                result = []
+                for m in items:
+                    if not isinstance(m, dict):
+                        continue
+                    name = m.get("name", "")
+                    if not name.startswith("models/gemini"):
+                        continue
+                    if "generateContent" not in m.get("supportedGenerationMethods", []):
+                        continue
+                    mid = name.removeprefix("models/")
+                    result.append({"id": mid, "name": m.get("displayName", mid)})
+                return result
+
+            elif provider_name == "copilot":
+                return await _fetch_copilot_models()
+
+    except Exception:
+        pass
+    return []
+
+
+async def _refresh_provider_models(provider_name: str) -> None:
+    """Fetch the model list for a provider and persist it to auth_store."""
+    models = await _fetch_provider_models(provider_name)
+    if models:
+        auth_tokens[f"{provider_name}__models"] = json.dumps(models)
+        save_auth_tokens(auth_tokens)
 
 
 @app.on_event("startup")
 async def _startup() -> None:
-    """On server start, refresh the Copilot API token so it never silently expires."""
-    if auth_tokens.get("copilot__github_token"):
-        await _refresh_copilot_token()
+    """On server start, migrate stale auth data and refresh model lists."""
+    changed = False
+    # Migrate: old installs stored the Copilot-internal base URL; clear it so the
+    # correct models.inference.ai.azure.com URL is picked up from _KNOWN_PROVIDERS.
+    if auth_tokens.get("copilot__base_url") == "https://api.githubcopilot.com":
+        del auth_tokens["copilot__base_url"]
+        changed = True
+    # Migrate: ensure the copilot bearer token is the long-lived GitHub OAuth token,
+    # not a short-lived Copilot-internal token from an older session.
+    github_token = auth_tokens.get("copilot__github_token")
+    if github_token and auth_tokens.get("copilot") != github_token:
+        auth_tokens["copilot"] = github_token
+        changed = True
+    if changed:
+        save_auth_tokens(auth_tokens)
+
+    tasks = [
+        _refresh_provider_models(name)
+        for name in _KNOWN_PROVIDERS
+        if auth_tokens.get(name)
+    ]
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 # GitHub OAuth App client_id for Copilot device flow (same one used by copilot.vim / copilot.lua)
 _COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
-_COPILOT_API_BASE = "https://api.githubcopilot.com"
+_COPILOT_API_BASE = "https://models.inference.ai.azure.com"
 
-
-def _copilot_dynamic_config() -> ProviderConfig | None:
-    """
-    Build a ProviderConfig for copilot from device-flow data stored in auth_store.
-    Used when copilot is not present in config.yaml.
-    Returns None if no copilot token is stored.
-    """
-    token = auth_tokens.get("copilot")
-    if not token:
-        return None
-    try:
-        models_data: list[dict] = json.loads(auth_tokens.get("copilot__models", "[]"))
-    except Exception:
-        models_data = []
-    if not models_data:
-        # Sensible fallback if the models fetch failed
-        models_data = [
-            {"id": "gpt-4o", "name": "Copilot GPT-4o"},
-            {"id": "gpt-4.1", "name": "Copilot GPT-4.1"},
-        ]
-    return ProviderConfig(
-        bearer_token=token,
-        base_url=auth_tokens.get("copilot__base_url", _COPILOT_API_BASE),
-        models=[ModelEntry(id=m["id"], name=m["name"]) for m in models_data],
-    )
+# All providers the app knows about, independent of config.yaml
+_KNOWN_PROVIDERS: dict[str, dict] = {
+    "openai":    {"base_url": None},
+    "anthropic": {"base_url": None},
+    "google":    {"base_url": None},
+    "copilot":   {"base_url": _COPILOT_API_BASE},
+}
 
 
 def _providers_with_auth_overrides() -> dict[str, ProviderConfig]:
+    """Build the runtime provider map by merging config.yaml entries with auth_store data."""
     providers = dict(config.providers)
-    for key, value in auth_tokens.items():
-        if "__" in key or not value:
-            continue  # skip metadata keys (e.g. copilot__base_url)
-        if key not in providers:
+    for provider_name, info in _KNOWN_PROVIDERS.items():
+        token = auth_tokens.get(provider_name)
+        if not token:
             continue
-        provider = replace(providers[key], bearer_token=value)
-        base_url_override = auth_tokens.get(f"{key}__base_url")
-        if base_url_override:
-            provider = replace(provider, base_url=base_url_override)
-        providers[key] = provider
-    # Inject dynamic copilot config if not already in config.yaml
-    if "copilot" not in providers:
-        dyn = _copilot_dynamic_config()
-        if dyn:
-            providers["copilot"] = dyn
+        try:
+            stored_models: list[dict] = json.loads(
+                auth_tokens.get(f"{provider_name}__models", "[]")
+            )
+        except Exception:
+            stored_models = []
+        base_url = auth_tokens.get(f"{provider_name}__base_url") or info.get("base_url")
+        if provider_name in providers:
+            # Existing config entry: apply stored token (and base_url/models if available)
+            p = replace(providers[provider_name], bearer_token=token)
+            if base_url:
+                p = replace(p, base_url=base_url)
+            if stored_models and not p.models:
+                p = replace(p, models=[ModelEntry(id=m["id"], name=m["name"]) for m in stored_models])
+            providers[provider_name] = p
+        elif stored_models:
+            # No config entry: build a fully dynamic ProviderConfig from stored data
+            providers[provider_name] = ProviderConfig(
+                bearer_token=token,
+                base_url=base_url,
+                models=[ModelEntry(id=m["id"], name=m["name"]) for m in stored_models],
+            )
     return providers
 
 
@@ -151,14 +244,11 @@ async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderCon
                 async for _ in client.aio.models.list():
                     break
             elif provider_name == "copilot" and auth_tokens.get("copilot__github_token"):
-                # Verify the long-lived GitHub OAuth token via the user API — this is
-                # more reliable than hitting the Copilot API (no special headers needed).
-                # Refresh the short-lived Copilot API token as a side-effect.
+                # Verify the GitHub OAuth token via the user API.
                 github_token = auth_tokens["copilot__github_token"]
                 result = await _github_http("GET", "https://api.github.com/user", token=github_token)
                 if "login" not in result:
                     return False
-                await _refresh_copilot_token()
             else:
                 # openai, copilot (manual token), kimi, groq, openrouter, …
                 from openai import AsyncOpenAI
@@ -240,6 +330,41 @@ async def _github_http(
     return await asyncio.to_thread(_do)
 
 
+async def _http_get(
+    url: str,
+    *,
+    bearer_token: str | None = None,
+    api_key_header: str | None = None,
+    api_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> dict | list:
+    """Generic async HTTP GET via stdlib urllib (no extra deps)."""
+
+    def _do() -> dict | list:
+        headers: dict[str, str] = {
+            "Accept": "application/json",
+            "User-Agent": "ChessHarness/1.0",
+        }
+        if bearer_token:
+            headers["Authorization"] = f"Bearer {bearer_token}"
+        if api_key_header and api_key:
+            headers[api_key_header] = api_key
+        if extra_headers:
+            headers.update(extra_headers)
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            try:
+                return json.loads(body)
+            except Exception:
+                raise RuntimeError(f"HTTP {exc.code}: {body[:200]}") from exc
+
+    return await asyncio.to_thread(_do)
+
+
 # --------------------------------------------------------------------------- #
 # Auth                                                                         #
 # --------------------------------------------------------------------------- #
@@ -247,8 +372,8 @@ async def _github_http(
 @app.get("/api/auth/providers")
 async def get_auth_providers():
     providers_cfg = _providers_with_auth_overrides()
-    # Always include 'copilot' so the device-flow UI appears even without a config.yaml entry
-    provider_names = sorted({provider for provider, _ in config.all_models()} | {"copilot"})
+    # Always show all known providers plus any extras defined in config.yaml
+    provider_names = sorted(set(_KNOWN_PROVIDERS) | set(config.providers))
 
     async def check(name: str) -> dict:
         ok = await _verify_token(name, providers_cfg)
@@ -263,19 +388,26 @@ async def connect_auth(payload: dict):
     token = str(payload.get("token", "")).strip()
     if not provider:
         raise HTTPException(status_code=400, detail="provider is required")
-    if provider not in config.providers:
+    if provider not in _KNOWN_PROVIDERS and provider not in config.providers:
         raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
     if not token:
         raise HTTPException(status_code=400, detail="token is required")
 
-    # Build a temporary config with the candidate token and verify it works
-    test_cfg = dict(config.providers)
-    test_cfg[provider] = replace(test_cfg[provider], bearer_token=token)
+    # Build a temporary ProviderConfig with the candidate token and verify it
+    if provider in config.providers:
+        test_cfg = {**config.providers, provider: replace(config.providers[provider], bearer_token=token)}
+    else:
+        test_cfg = {provider: ProviderConfig(
+            bearer_token=token,
+            base_url=_KNOWN_PROVIDERS[provider].get("base_url"),
+        )}
     if not await _verify_token(provider, test_cfg):
         raise HTTPException(status_code=401, detail=f"Token verification failed for {provider}")
 
     auth_tokens[provider] = token
     save_auth_tokens(auth_tokens)
+    # Fetch and cache the model list so the dropdown is populated immediately
+    await _refresh_provider_models(provider)
     return {"provider": provider, "connected": True}
 
 
@@ -354,43 +486,15 @@ async def copilot_device_poll(payload: dict):
     if not github_token:
         return {"status": "error", "error": "No access_token in GitHub response"}
 
-    # Try to exchange the GitHub OAuth token for a short-lived Copilot API token.
-    # If the exchange fails (e.g. the internal endpoint is unavailable or returns no token),
-    # fall back to using the GitHub OAuth token directly — the Copilot API accepts it.
-    copilot_token: str | None = None
-    try:
-        copilot_result = await _github_http(
-            "GET",
-            "https://api.github.com/copilot_internal/v2/token",
-            token=github_token,
-        )
-        copilot_token = copilot_result.get("token")
-    except Exception:
-        pass  # exchange failed; fall through to github_token fallback
-
-    if not copilot_token:
-        copilot_token = github_token  # use GitHub OAuth token directly
-
-    # Persist: bearer token, base_url, and GitHub token (for future refresh)
-    auth_tokens["copilot"] = copilot_token
-    auth_tokens["copilot__base_url"] = _COPILOT_API_BASE
+    # The GitHub OAuth token is used directly with models.inference.ai.azure.com —
+    # no Copilot-internal token exchange needed or wanted.
+    auth_tokens["copilot"] = github_token
     auth_tokens["copilot__github_token"] = github_token
-
-    # Fetch available models from the Copilot API and store them so games work
-    # without needing a copilot entry in config.yaml
-    try:
-        models_result = await _github_http("GET", f"{_COPILOT_API_BASE}/models", token=copilot_token)
-        models_data = [
-            {"id": m["id"], "name": m.get("name", m["id"])}
-            for m in models_result.get("data", [])
-            if m.get("id")
-        ]
-        if models_data:
-            auth_tokens["copilot__models"] = json.dumps(models_data)
-    except Exception:
-        pass  # models fetch is best-effort; _copilot_dynamic_config() has a fallback
-
     save_auth_tokens(auth_tokens)
+
+    # Fetch models in the background so the auth response is not delayed.
+    # The frontend re-fetches /api/models after this endpoint returns.
+    asyncio.create_task(_refresh_provider_models("copilot"))
 
     return {"status": "connected"}
 
