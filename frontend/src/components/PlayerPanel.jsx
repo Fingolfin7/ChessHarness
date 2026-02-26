@@ -19,8 +19,11 @@ export default function PlayerPanel({
           </span>
         )}
         {!isThinking && invalidAttempt && (
-          <span className="invalid-badge">
+          <span className="invalid-badge" title={invalidAttempt.error}>
             ✗ Retry {invalidAttempt.attempt}
+            {invalidAttempt.error && (
+              <span className="invalid-error">{invalidAttempt.error}</span>
+            )}
           </span>
         )}
         {!isThinking && !invalidAttempt && lastMoveSan && (

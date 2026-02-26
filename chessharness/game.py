@@ -17,7 +17,10 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import logging
 import chess
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator
@@ -140,6 +143,9 @@ async def run_game(
                 response = await move_task
             except ProviderError as exc:
                 error = f"API error: {exc}"
+                logger.error("ProviderError on move %s attempt %d [%s %s]: %s",
+                             board.fullmove_number, attempt, current_color,
+                             current_player.name, exc, exc_info=True)
                 yield InvalidMoveEvent(
                     color=current_color,
                     attempted_move="",

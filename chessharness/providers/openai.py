@@ -12,10 +12,13 @@ Parameter compatibility notes:
 from __future__ import annotations
 
 import base64
+import logging
 
 from openai import AsyncOpenAI
 
 from chessharness.providers.base import LLMProvider, Message, ProviderError
+
+logger = logging.getLogger(__name__)
 
 # Model name prefixes that support vision (image) input
 _VISION_PREFIXES = (
@@ -46,8 +49,9 @@ class OpenAIProvider(LLMProvider):
         api_key=<moonshot key>
     """
 
-    def __init__(self, api_key: str, model: str, base_url: str | None = None) -> None:
+    def __init__(self, api_key: str, model: str, base_url: str | None = None, provider_label: str = "openai") -> None:
         self._model = model
+        self._provider_label = provider_label
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     @property
@@ -69,7 +73,9 @@ class OpenAIProvider(LLMProvider):
             )
             return (response.choices[0].message.content or "").strip()
         except Exception as exc:
-            raise ProviderError("openai", str(exc), cause=exc) from exc
+            logger.error("complete() failed [provider=%s model=%s base_url=%s]: %s",
+                         self._provider_label, self._model, self._client.base_url, exc, exc_info=True)
+            raise ProviderError(self._provider_label, str(exc), cause=exc) from exc
 
     async def stream(
         self,
@@ -90,7 +96,9 @@ class OpenAIProvider(LLMProvider):
                     if delta:
                         yield delta
         except Exception as exc:
-            raise ProviderError("openai", str(exc), cause=exc) from exc
+            logger.error("stream() failed [provider=%s model=%s base_url=%s]: %s",
+                         self._provider_label, self._model, self._client.base_url, exc, exc_info=True)
+            raise ProviderError(self._provider_label, str(exc), cause=exc) from exc
 
     def _build_api_messages(self, messages: list[Message]) -> list[dict]:
         result: list[dict] = []

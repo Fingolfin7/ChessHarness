@@ -307,7 +307,8 @@ html, body, #root {
 }
 
 .last-move-san { font-family: 'Consolas', monospace; font-size: 0.9rem; font-weight: 600; color: var(--dark-sq); }
-.invalid-badge  { color: var(--error); font-size: 0.75rem; }
+.invalid-badge  { color: var(--error); font-size: 0.75rem; display: flex; flex-direction: column; gap: 2px; }
+.invalid-error  { font-size: 0.65rem; opacity: 0.85; font-family: 'Consolas', monospace; white-space: pre-wrap; word-break: break-all; max-height: 80px; overflow-y: auto; }
 
 /* ── Move history ───────────────────────────────────────────────────────── */
 .move-history {
@@ -569,4 +570,30 @@ html, body, #root {
   font-size: 0.8rem;
   color: var(--error);
   margin: 0;
+}
+
+.device-flow-note {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin: 0.25rem 0 0;
+}
+
+.auth-hint {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin: 0.25rem 0 0.25rem;
+}
+
+.auth-hint a {
+  color: var(--thinking);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--thinking);
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
 }

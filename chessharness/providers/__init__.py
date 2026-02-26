@@ -61,6 +61,7 @@ def create_provider(
                 api_key=token,
                 model=model_id,
                 base_url=prov_cfg.base_url,
+                provider_label=provider_name,
             )
         case _:
             raise ValueError(

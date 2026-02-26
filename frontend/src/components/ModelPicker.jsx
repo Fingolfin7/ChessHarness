@@ -162,7 +162,7 @@ export default function ModelPicker({
                 return (
                   <div key="copilot" className="auth-row">
                     <div className="auth-provider">
-                      <strong>GitHub Copilot</strong>
+                      <strong>GitHub Models</strong>
                       <span className={connected ? 'auth-connected' : 'auth-disconnected'}>
                         {connected ? 'Connected' : 'Not connected'}
                       </span>
@@ -177,7 +177,7 @@ export default function ModelPicker({
                           setAuthMessage('')
                           setTokens(prev => ({ ...prev, copilot: prev.copilot ?? '' }))
                         }}>
-                          Paste token
+                          Paste PAT
                         </button>
                       </div>
                     )}
@@ -194,6 +194,13 @@ export default function ModelPicker({
                         </p>
                         <div className="device-code">{copilotFlow.user_code}</div>
                         <p className="device-flow-waiting">Waiting for authorization…</p>
+                        <p className="device-flow-note">
+                          If models fail to load after sign-in, use a{' '}
+                          <button className="btn-link" onClick={cancelCopilotFlow}>
+                            classic PAT
+                          </button>{' '}
+                          instead — no special scopes needed.
+                        </p>
                         <button className="btn-inline danger" onClick={cancelCopilotFlow}>Cancel</button>
                       </div>
                     )}
@@ -212,12 +219,19 @@ export default function ModelPicker({
                       </div>
                     )}
 
-                    {/* Manual paste fallback (when tokens.copilot is defined) */}
+                    {/* PAT paste — recommended method for GitHub Models */}
                     {!copilotFlow && !connected && tokens.copilot !== undefined && (
                       <>
+                        <p className="auth-hint">
+                          Create a{' '}
+                          <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">
+                            classic PAT
+                          </a>{' '}
+                          at github.com/settings/tokens — no special scopes required.
+                        </p>
                         <input
                           type="password"
-                          placeholder="Paste Copilot bearer token"
+                          placeholder="Paste GitHub classic PAT (ghp_…)"
                           value={tokens.copilot || ''}
                           onChange={e => setTokens(prev => ({ ...prev, copilot: e.target.value }))}
                         />

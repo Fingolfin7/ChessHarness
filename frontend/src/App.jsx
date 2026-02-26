@@ -62,6 +62,7 @@ function applyEvent(state, event) {
       }
 
     case 'InvalidMoveEvent':
+      console.error('[InvalidMove]', event.color, `attempt ${event.attempt_num}:`, event.error)
       return {
         ...state,
         thinking: false,
@@ -116,6 +117,7 @@ function applyEvent(state, event) {
       }
 
     case 'error':
+      console.error('[WebSocket error]', event.message)
       return { ...state, error: event.message, thinking: false }
 
     default:

@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import logging
+import logging.handlers
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -36,6 +38,26 @@ from chessharness.providers import create_provider
 
 config = load_config()
 auth_tokens = load_auth_tokens()
+
+# --------------------------------------------------------------------------- #
+# Logging                                                                      #
+# --------------------------------------------------------------------------- #
+
+_LOG_FILE = Path("./logs/chessharness.log")
+_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    handlers=[
+        logging.StreamHandler(),                                   # server console
+        logging.handlers.RotatingFileHandler(
+            _LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=3,  # 2 MB × 3 files
+            encoding="utf-8",
+        ),
+    ],
+)
+logger = logging.getLogger("chessharness")
 
 
 app = FastAPI(title="ChessHarness")
@@ -220,10 +242,11 @@ async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderCon
                 client = _genai.Client(api_key=token)
                 async for _ in client.aio.models.list():
                     break
-            elif provider_name == "copilot" and auth_tokens.get("copilot__github_token"):
-                # Verify the GitHub OAuth token via the user API.
-                github_token = auth_tokens["copilot__github_token"]
-                result = await _github_http("GET", "https://api.github.com/user", token=github_token)
+            elif provider_name == "copilot":
+                # Verify any GitHub token (device-flow OAuth or manual PAT) via the user API.
+                # The GitHub user endpoint accepts any valid token regardless of scope,
+                # and avoids OpenAI SDK schema-parsing issues with the models endpoint.
+                result = await _github_http("GET", "https://api.github.com/user", token=token)
                 if "login" not in result:
                     return False
             else:
@@ -382,6 +405,10 @@ async def connect_auth(payload: dict):
         raise HTTPException(status_code=401, detail=f"Token verification failed for {provider}")
 
     auth_tokens[provider] = token
+    # For GitHub Models, also store as the canonical github_token key so that
+    # startup migration and verification both find it in the same place.
+    if provider == "copilot":
+        auth_tokens["copilot__github_token"] = token
     save_auth_tokens(auth_tokens)
     # Fetch and cache the model list so the dropdown is populated immediately
     await _refresh_provider_models(provider)
