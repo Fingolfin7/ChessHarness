@@ -7,6 +7,7 @@ an LLM API call, stdin input, a chess engine query, or a remote API call.
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -49,7 +50,11 @@ class Player(ABC):
         self.name = name
 
     @abstractmethod
-    async def get_move(self, state: GameState) -> MoveResponse:
+    async def get_move(
+        self,
+        state: GameState,
+        chunk_queue: asyncio.Queue | None = None,
+    ) -> MoveResponse:
         """
         Given the current game state, return a MoveResponse.
 

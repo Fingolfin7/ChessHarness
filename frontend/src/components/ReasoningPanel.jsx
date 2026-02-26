@@ -21,14 +21,17 @@ export default function ReasoningPanel({ color, name, reasoning, isThinking, isR
         </div>
       </div>
       <div className="reasoning-body" ref={scrollRef}>
-        {isThinking
+        {isThinking && !reasoning
           ? <div className="typing-indicator">
               <span className="typing-dot" />
               <span className="typing-dot" />
               <span className="typing-dot" />
             </div>
           : reasoning
-            ? <p>{reasoning}</p>
+            ? <p style={{ whiteSpace: 'pre-wrap' }}>
+                {reasoning}
+                {isThinking && <span className="stream-cursor" />}
+              </p>
             : <p className="reasoning-placeholder">Awaiting first move…</p>
         }
       </div>

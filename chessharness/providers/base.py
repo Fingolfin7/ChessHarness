@@ -9,7 +9,7 @@ including optional image bytes for vision-capable providers.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import NamedTuple
+from typing import AsyncIterator, NamedTuple
 
 
 class Message(NamedTuple):
@@ -46,6 +46,25 @@ class LLMProvider(ABC):
             ProviderError: Wraps provider-specific exceptions for uniform handling.
         """
         ...
+
+    @abstractmethod
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int = 5120,
+    ) -> AsyncIterator[str]:
+        """
+        Yield raw text tokens as the model produces them.
+
+        Implementors must define this as an async generator (async def + yield).
+        Callers iterate with:  async for chunk in provider.stream(messages): ...
+
+        Raises:
+            ProviderError: Wraps provider-specific exceptions for uniform handling.
+        """
+        raise NotImplementedError
+        yield  # marks this as an async generator so subclasses can too
 
 
 class ProviderError(Exception):

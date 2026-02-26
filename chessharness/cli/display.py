@@ -21,6 +21,7 @@ from chessharness.events import (
     TurnStartEvent,
     MoveRequestedEvent,
     InvalidMoveEvent,
+    ReasoningChunkEvent,
     MoveAppliedEvent,
     CheckEvent,
     GameOverEvent,
@@ -37,7 +38,9 @@ def display_event(event: GameEvent) -> None:
         case TurnStartEvent():
             _turn_start(event)
         case MoveRequestedEvent():
-            pass  # silent — move requests are noise in the CLI
+            console.print("  [dim]thinking…[/] ", end="")
+        case ReasoningChunkEvent():
+            console.print(event.chunk, end="", highlight=False, markup=False)
         case InvalidMoveEvent():
             _invalid_move(event)
         case MoveAppliedEvent():
@@ -90,8 +93,7 @@ def _turn_start(event: TurnStartEvent) -> None:
 
 
 def _invalid_move(event: InvalidMoveEvent) -> None:
-    if event.reasoning:
-        console.print(f"  [dim italic]Reasoning: {event.reasoning}[/]")
+    console.print()  # end streaming line
     raw_preview = repr(event.raw_response) if event.raw_response else "''"
     console.print(
         f"  [red]✗[/] Attempt {event.attempt_num}: "
@@ -101,8 +103,7 @@ def _invalid_move(event: InvalidMoveEvent) -> None:
 
 
 def _move_applied(event: MoveAppliedEvent) -> None:
-    if event.reasoning:
-        console.print(f"  [dim italic]Reasoning: {event.reasoning}[/]")
+    console.print()  # end streaming line
     check_tag = "  [bold red]+[/]" if event.is_check else ""
     console.print(
         f"  [green]✓[/] [bold]{event.move_san}[/]{check_tag}"

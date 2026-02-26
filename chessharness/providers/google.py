@@ -58,6 +58,34 @@ class GoogleProvider(LLMProvider):
         except Exception as exc:
             raise ProviderError("google", str(exc), cause=exc) from exc
 
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int = 5120,
+    ):
+        try:
+            system_content = next(
+                (m.content for m in messages if m.role == "system"), None
+            )
+            contents = self._build_contents(
+                [m for m in messages if m.role != "system"]
+            )
+            gen_config = types.GenerateContentConfig(
+                max_output_tokens=max_tokens,
+                system_instruction=system_content,
+            )
+            response_stream = await self._client.aio.models.generate_content_stream(
+                model=self._model_name,
+                contents=contents,
+                config=gen_config,
+            )
+            async for chunk in response_stream:
+                if chunk.text:
+                    yield chunk.text
+        except Exception as exc:
+            raise ProviderError("google", str(exc), cause=exc) from exc
+
     def _build_contents(self, messages: list[Message]) -> list:
         """
         Build the contents list for the google-genai SDK.

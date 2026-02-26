@@ -14,6 +14,8 @@ not re-launched every turn.
 
 from __future__ import annotations
 
+import asyncio
+
 from chessharness.players.base import Player, GameState, MoveResponse
 
 
@@ -37,7 +39,7 @@ class EnginePlayer(Player):
         self._engine_path = engine_path
         self._think_time = think_time
 
-    async def get_move(self, state: GameState) -> MoveResponse:
+    async def get_move(self, state: GameState, chunk_queue: asyncio.Queue | None = None) -> MoveResponse:
         raise NotImplementedError(
             "EnginePlayer is not yet implemented. "
             "See the docstring in engine.py for the implementation outline."

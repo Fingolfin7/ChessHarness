@@ -85,9 +85,12 @@ class LLMPlayer(Player):
         self._move_timeout = move_timeout
         self._history: list[Message] = []  # grows as [user, assistant, user, assistant, ...]
 
-    async def get_move(self, state: GameState) -> MoveResponse:
+    async def get_move(
+        self,
+        state: GameState,
+        chunk_queue: asyncio.Queue | None = None,
+    ) -> MoveResponse:
         messages = self._build_messages(state)
-        current_user_msg = messages[-1]  # the freshly-built user turn
 
         if self._logger:
             self._logger.log_request(
@@ -99,7 +102,11 @@ class LLMPlayer(Player):
 
         try:
             async with asyncio.timeout(self._move_timeout):
-                raw = await self._provider.complete(messages)
+                raw = ""
+                async for chunk in self._provider.stream(messages):
+                    raw += chunk
+                    if chunk_queue is not None:
+                        await chunk_queue.put(chunk)
         except TimeoutError:
             raise ProviderError(
                 self._provider.__class__.__name__,

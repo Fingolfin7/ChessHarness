@@ -16,7 +16,7 @@ from chessharness.players.base import Player, GameState, MoveResponse
 
 
 class HumanPlayer(Player):
-    async def get_move(self, state: GameState) -> MoveResponse:
+    async def get_move(self, state: GameState, chunk_queue: asyncio.Queue | None = None) -> MoveResponse:
         legal_preview = ", ".join(state.legal_moves_san[:10])
         if len(state.legal_moves_san) > 10:
             legal_preview += f" … ({len(state.legal_moves_san)} total)"

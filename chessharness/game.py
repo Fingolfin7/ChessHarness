@@ -30,6 +30,7 @@ from chessharness.events import (
     TurnStartEvent,
     MoveRequestedEvent,
     InvalidMoveEvent,
+    ReasoningChunkEvent,
     MoveAppliedEvent,
     CheckEvent,
     GameOverEvent,
@@ -116,8 +117,27 @@ async def run_game(
                 attempt_num=attempt,
             )
 
+            # Stream chunks to consumers while waiting for the full response
+            chunk_queue: asyncio.Queue = asyncio.Queue()
+
+            async def _get_and_signal(
+                player=current_player, s=state, q=chunk_queue
+            ):
+                try:
+                    return await player.get_move(s, chunk_queue=q)
+                finally:
+                    await q.put(None)  # sentinel: signals completion
+
+            move_task = asyncio.create_task(_get_and_signal())
+
+            while True:
+                chunk = await chunk_queue.get()
+                if chunk is None:
+                    break
+                yield ReasoningChunkEvent(color=current_color, chunk=chunk)
+
             try:
-                response = await current_player.get_move(state)
+                response = await move_task
             except ProviderError as exc:
                 error = f"API error: {exc}"
                 yield InvalidMoveEvent(

@@ -45,7 +45,21 @@ function applyEvent(state, event) {
       return { ...state, turn: event.color }
 
     case 'MoveRequestedEvent':
-      return { ...state, thinking: true, invalidAttempt: null }
+      return {
+        ...state,
+        thinking: true,
+        invalidAttempt: null,
+        reasoning: { ...state.reasoning, [event.color]: '' },
+      }
+
+    case 'ReasoningChunkEvent':
+      return {
+        ...state,
+        reasoning: {
+          ...state.reasoning,
+          [event.color]: (state.reasoning[event.color] || '') + event.chunk,
+        },
+      }
 
     case 'InvalidMoveEvent':
       return {

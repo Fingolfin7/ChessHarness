@@ -74,6 +74,12 @@ class MoveAppliedEvent:
 
 
 @dataclass(frozen=True)
+class ReasoningChunkEvent:
+    color: Color
+    chunk: str   # raw token(s) from the model stream
+
+
+@dataclass(frozen=True)
 class CheckEvent:
     color_in_check: Color
     checking_move_san: str
@@ -95,6 +101,7 @@ GameEvent = (
     | TurnStartEvent
     | MoveRequestedEvent
     | InvalidMoveEvent
+    | ReasoningChunkEvent
     | MoveAppliedEvent
     | CheckEvent
     | GameOverEvent

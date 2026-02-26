@@ -57,6 +57,30 @@ class AnthropicProvider(LLMProvider):
         except Exception as exc:
             raise ProviderError("anthropic", str(exc), cause=exc) from exc
 
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int = 5120,
+    ):
+        try:
+            system_content = next(
+                (m.content for m in messages if m.role == "system"), ""
+            )
+            user_messages = self._build_api_messages(
+                [m for m in messages if m.role != "system"]
+            )
+            async with self._client.messages.stream(
+                model=self._model,
+                max_tokens=max_tokens,
+                system=system_content,
+                messages=user_messages,  # type: ignore[arg-type]
+            ) as stream:
+                async for text in stream.text_stream:
+                    yield text
+        except Exception as exc:
+            raise ProviderError("anthropic", str(exc), cause=exc) from exc
+
     def _build_api_messages(self, messages: list[Message]) -> list[dict]:
         result: list[dict] = []
         for msg in messages:

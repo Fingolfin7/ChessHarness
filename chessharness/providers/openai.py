@@ -71,6 +71,27 @@ class OpenAIProvider(LLMProvider):
         except Exception as exc:
             raise ProviderError("openai", str(exc), cause=exc) from exc
 
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int = 5120,
+    ):
+        try:
+            api_messages = self._build_api_messages(messages)
+            async with await self._client.chat.completions.create(
+                model=self._model,
+                messages=api_messages,  # type: ignore[arg-type]
+                max_completion_tokens=max_tokens,
+                stream=True,
+            ) as stream:
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta.content
+                    if delta:
+                        yield delta
+        except Exception as exc:
+            raise ProviderError("openai", str(exc), cause=exc) from exc
+
     def _build_api_messages(self, messages: list[Message]) -> list[dict]:
         result: list[dict] = []
         for msg in messages:
