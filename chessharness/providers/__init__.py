@@ -2,7 +2,7 @@
 Provider factory.
 
 create_provider() is the single entry point for instantiating any LLMProvider.
-Kimi/Moonshot is handled as a special case of OpenAIProvider with a custom base_url.
+Kimi/Moonshot and other OpenAI-compatible providers are handled as special cases of OpenAIProvider with a custom base_url.
 
 To add a new provider:
   1. Create chessharness/providers/<name>.py implementing LLMProvider
@@ -41,23 +41,29 @@ def create_provider(
             f"Provider '{provider_name}' is not defined in the providers section of config.yaml"
         )
 
+    token = prov_cfg.auth_token
+    if not token:
+        raise ValueError(
+            f"Provider '{provider_name}' needs either 'api_key' or 'bearer_token' in config.yaml"
+        )
+
     match provider_name:
         case "openai":
-            return OpenAIProvider(api_key=prov_cfg.api_key, model=model_id)
+            return OpenAIProvider(api_key=token, model=model_id, base_url=prov_cfg.base_url)
         case "anthropic":
-            return AnthropicProvider(api_key=prov_cfg.api_key, model=model_id)
+            return AnthropicProvider(api_key=token, model=model_id)
         case "google":
-            return GoogleProvider(api_key=prov_cfg.api_key, model=model_id)
-        case "kimi":
+            return GoogleProvider(api_key=token, model=model_id)
+        case "kimi" | "copilot" | "groq" | "openrouter":
             if not prov_cfg.base_url:
-                raise ValueError("Kimi provider requires 'base_url' in config")
+                raise ValueError(f"{provider_name} provider requires 'base_url' in config")
             return OpenAIProvider(
-                api_key=prov_cfg.api_key,
+                api_key=token,
                 model=model_id,
                 base_url=prov_cfg.base_url,
             )
         case _:
             raise ValueError(
                 f"Unknown provider: '{provider_name}'. "
-                "Supported: openai, anthropic, google, kimi"
+                "Supported: openai, anthropic, google, kimi, copilot, groq, openrouter"
             )

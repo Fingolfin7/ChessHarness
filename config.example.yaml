@@ -26,6 +26,8 @@ game:
   pgn_dir: "./games"
 
 providers:
+  # For each provider, set either api_key or bearer_token.
+  # bearer_token is useful for subscription-style/login tokens from compatible gateways.
   openai:
     api_key: "YOUR_OPENAI_KEY"
     models:
@@ -62,3 +64,28 @@ providers:
         name: "Kimi 8k"
       - id: moonshot-v1-32k
         name: "Kimi 32k"
+
+
+  # GitHub Copilot-compatible bridge (OpenAI-compatible endpoint)
+  copilot:
+    bearer_token: "YOUR_COPILOT_BEARER_TOKEN"
+    base_url: "https://your-copilot-bridge.example/v1"
+    models:
+      - id: gpt-4.1
+        name: "Copilot GPT-4.1"
+
+  # Groq (OpenAI-compatible API)
+  groq:
+    api_key: "YOUR_GROQ_KEY"
+    base_url: "https://api.groq.com/openai/v1"
+    models:
+      - id: llama-3.3-70b-versatile
+        name: "Groq Llama 3.3 70B"
+
+  # OpenRouter (OpenAI-compatible API)
+  openrouter:
+    api_key: "YOUR_OPENROUTER_KEY"
+    base_url: "https://openrouter.ai/api/v1"
+    models:
+      - id: openai/gpt-4o-mini
+        name: "OpenRouter GPT-4o Mini"
