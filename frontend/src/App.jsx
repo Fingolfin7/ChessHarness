@@ -127,6 +127,7 @@ export default function App() {
   const [state, setState] = useState(INITIAL_STATE)
   const [models, setModels] = useState([])
   const [authProviders, setAuthProviders] = useState({})
+  const [authReady, setAuthReady] = useState(false)
   const wsRef = useRef(null)
 
   useEffect(() => {
@@ -139,12 +140,11 @@ export default function App() {
       .then(r => r.json())
       .then(rows => {
         const mapped = {}
-        rows.forEach(row => {
-          mapped[row.provider] = !!row.connected
-        })
+        rows.forEach(row => { mapped[row.provider] = !!row.connected })
         setAuthProviders(mapped)
       })
       .catch(() => {})
+      .finally(() => setAuthReady(true))
   }, [])
 
   const startGame = useCallback((white, black) => {
@@ -176,11 +176,45 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, token }),
       })
-      if (!res.ok) return false
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        return { ok: false, error: data.detail || 'Connection failed.' }
+      }
       setAuthProviders(prev => ({ ...prev, [provider]: true }))
-      return true
+      return { ok: true }
     } catch {
-      return false
+      return { ok: false, error: 'Network error.' }
+    }
+  }, [])
+
+  const startCopilotDeviceFlow = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/copilot/device/start', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return { ok: false, error: data.detail || 'Failed to start.' }
+      return { ok: true, ...data }
+    } catch {
+      return { ok: false, error: 'Network error.' }
+    }
+  }, [])
+
+  const pollCopilotDeviceFlow = useCallback(async (deviceCode) => {
+    try {
+      const res = await fetch('/api/auth/copilot/device/poll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_code: deviceCode }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        return { status: 'error', error: data.detail || `Server error ${res.status}` }
+      }
+      if (data.status === 'connected') {
+        setAuthProviders(prev => ({ ...prev, copilot: true }))
+      }
+      return data
+    } catch {
+      return { status: 'error', error: 'Network error.' }
     }
   }, [])
 
@@ -205,8 +239,11 @@ export default function App() {
       <ModelPicker
         models={models}
         authProviders={authProviders}
+        authReady={authReady}
         onConnect={connectProvider}
         onDisconnect={disconnectProvider}
+        onCopilotDeviceStart={startCopilotDeviceFlow}
+        onCopilotDevicePoll={pollCopilotDeviceFlow}
         onStart={startGame}
         error={state.error}
       />

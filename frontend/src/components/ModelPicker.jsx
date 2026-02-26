@@ -1,16 +1,57 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-export default function ModelPicker({ models, authProviders, onConnect, onDisconnect, onStart, error }) {
+export default function ModelPicker({
+  models, authProviders, authReady,
+  onConnect, onDisconnect,
+  onCopilotDeviceStart, onCopilotDevicePoll,
+  onStart, error,
+}) {
   const [white, setWhite] = useState('')
   const [black, setBlack] = useState('')
   const [tokens, setTokens] = useState({})
   const [authMessage, setAuthMessage] = useState('')
 
+  // Copilot device-flow state
+  const [copilotFlow, setCopilotFlow] = useState(null)
+  // copilotFlow = null | { device_code, user_code, verification_uri, status: 'waiting'|'expired'|'error', error? }
+  const pollTimerRef = useRef(null)
+
   const signinProviders = useMemo(() => {
-    const preferred = ['openai', 'copilot']
-    const available = new Set(models.map(m => m.provider))
-    return preferred.filter(p => available.has(p))
-  }, [models])
+    return Object.keys(authProviders).sort()
+  }, [authProviders])
+
+  // Only expose models from providers that are currently connected
+  const availableModels = useMemo(() => {
+    if (!authReady) return []
+    return models.filter(m => authProviders[m.provider])
+  }, [models, authProviders, authReady])
+
+  // Group available models by provider for <optgroup> display
+  const modelsByProvider = useMemo(() => {
+    const groups = {}
+    for (const m of availableModels) {
+      if (!groups[m.provider]) groups[m.provider] = []
+      groups[m.provider].push(m)
+    }
+    return groups
+  }, [availableModels])
+
+  // Clear selections when a previously chosen model's provider is disconnected
+  useEffect(() => {
+    if (!authReady) return
+    if (white) {
+      try {
+        const wm = JSON.parse(white)
+        if (!authProviders[wm.provider]) setWhite('')
+      } catch { setWhite('') }
+    }
+    if (black) {
+      try {
+        const bm = JSON.parse(black)
+        if (!authProviders[bm.provider]) setBlack('')
+      } catch { setBlack('') }
+    }
+  }, [authProviders, authReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStart = () => {
     if (!white || !black) return
@@ -28,14 +69,68 @@ export default function ModelPicker({ models, authProviders, onConnect, onDiscon
       setAuthMessage(`Enter a token for ${provider} first.`)
       return
     }
+    setAuthMessage(`Verifying ${provider}…`)
     const result = await onConnect(provider, token)
-    setAuthMessage(result ? `Connected ${provider}.` : `Failed to connect ${provider}.`)
-    setTokens(prev => ({ ...prev, [provider]: '' }))
+    if (result.ok) {
+      setAuthMessage(`Connected ${provider}.`)
+      setTokens(prev => ({ ...prev, [provider]: '' }))
+    } else {
+      setAuthMessage(`${provider}: ${result.error}`)
+    }
   }
 
   const disconnect = async (provider) => {
+    if (provider === 'copilot') cancelCopilotFlow()
     const result = await onDisconnect(provider)
     setAuthMessage(result ? `Disconnected ${provider}.` : `Failed to disconnect ${provider}.`)
+  }
+
+  // ── Copilot device flow ────────────────────────────────────────────────── //
+
+  const cancelCopilotFlow = useCallback(() => {
+    clearInterval(pollTimerRef.current)
+    pollTimerRef.current = null
+    setCopilotFlow(null)
+  }, [])
+
+  // Clean up interval on unmount
+  useEffect(() => () => clearInterval(pollTimerRef.current), [])
+
+  const startCopilotFlow = async () => {
+    const result = await onCopilotDeviceStart()
+    if (!result.ok) {
+      setAuthMessage(`Copilot: ${result.error}`)
+      return
+    }
+    setCopilotFlow({
+      device_code: result.device_code,
+      user_code: result.user_code,
+      verification_uri: result.verification_uri,
+      status: 'waiting',
+    })
+    const intervalMs = (result.interval ?? 5) * 1000
+    const stopPoll = (newFlowState) => {
+      clearInterval(pollTimerRef.current)
+      pollTimerRef.current = null
+      if (newFlowState) setCopilotFlow(f => ({ ...f, ...newFlowState }))
+    }
+
+    pollTimerRef.current = setInterval(async () => {
+      const poll = await onCopilotDevicePoll(result.device_code)
+      if (poll.status === 'connected') {
+        stopPoll(null)
+        setCopilotFlow(null)
+        setAuthMessage('Copilot connected.')
+      } else if (poll.status === 'expired') {
+        stopPoll({ status: 'expired' })
+      } else if (poll.status === 'error') {
+        stopPoll({ status: 'error', error: poll.error || 'Unknown error.' })
+      } else if (poll.status !== 'pending') {
+        // Catch-all: unexpected response (e.g. server error) — stop polling
+        stopPoll({ status: 'error', error: poll.error || `Unexpected response: ${JSON.stringify(poll)}` })
+      }
+      // 'pending' → keep polling
+    }, intervalMs)
   }
 
   return (
@@ -51,9 +146,90 @@ export default function ModelPicker({ models, authProviders, onConnect, onDiscon
 
         {signinProviders.length > 0 && (
           <div className="auth-panel">
-            <div className="auth-title">Sign in providers</div>
+            <div className="auth-title">Providers</div>
             {signinProviders.map(provider => {
               const connected = authProviders[provider]
+
+              if (provider === 'copilot') {
+                return (
+                  <div key="copilot" className="auth-row">
+                    <div className="auth-provider">
+                      <strong>GitHub Copilot</strong>
+                      <span className={connected ? 'auth-connected' : 'auth-disconnected'}>
+                        {connected ? 'Connected' : 'Not connected'}
+                      </span>
+                    </div>
+
+                    {!connected && !copilotFlow && (
+                      <div className="auth-actions">
+                        <button className="btn-inline copilot-signin" onClick={startCopilotFlow}>
+                          Sign in with GitHub
+                        </button>
+                        <button className="btn-inline" onClick={() => {
+                          setAuthMessage('')
+                          setTokens(prev => ({ ...prev, copilot: prev.copilot ?? '' }))
+                        }}>
+                          Paste token
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Device-flow in progress */}
+                    {copilotFlow && copilotFlow.status === 'waiting' && (
+                      <div className="device-flow">
+                        <p className="device-flow-instructions">
+                          Go to{' '}
+                          <a href={copilotFlow.verification_uri} target="_blank" rel="noreferrer">
+                            {copilotFlow.verification_uri}
+                          </a>{' '}
+                          and enter:
+                        </p>
+                        <div className="device-code">{copilotFlow.user_code}</div>
+                        <p className="device-flow-waiting">Waiting for authorization…</p>
+                        <button className="btn-inline danger" onClick={cancelCopilotFlow}>Cancel</button>
+                      </div>
+                    )}
+
+                    {copilotFlow && copilotFlow.status === 'expired' && (
+                      <div className="device-flow">
+                        <p className="device-flow-error">Code expired. Try again.</p>
+                        <button className="btn-inline" onClick={cancelCopilotFlow}>Retry</button>
+                      </div>
+                    )}
+
+                    {copilotFlow && copilotFlow.status === 'error' && (
+                      <div className="device-flow">
+                        <p className="device-flow-error">{copilotFlow.error}</p>
+                        <button className="btn-inline" onClick={cancelCopilotFlow}>Retry</button>
+                      </div>
+                    )}
+
+                    {/* Manual paste fallback (when tokens.copilot is defined) */}
+                    {!copilotFlow && !connected && tokens.copilot !== undefined && (
+                      <>
+                        <input
+                          type="password"
+                          placeholder="Paste Copilot bearer token"
+                          value={tokens.copilot || ''}
+                          onChange={e => setTokens(prev => ({ ...prev, copilot: e.target.value }))}
+                        />
+                        <div className="auth-actions">
+                          <button className="btn-inline" onClick={() => connect('copilot')}>Connect</button>
+                          <button className="btn-inline danger" onClick={() => setTokens(prev => { const n = {...prev}; delete n.copilot; return n })}>Cancel</button>
+                        </div>
+                      </>
+                    )}
+
+                    {connected && (
+                      <div className="auth-actions">
+                        <button className="btn-inline danger" onClick={() => disconnect('copilot')}>Disconnect</button>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
+              // All other providers: token paste
               return (
                 <div key={provider} className="auth-row">
                   <div className="auth-provider">
@@ -64,7 +240,7 @@ export default function ModelPicker({ models, authProviders, onConnect, onDiscon
                   </div>
                   <input
                     type="password"
-                    placeholder={`Paste ${provider} token`}
+                    placeholder={`Paste ${provider} API key`}
                     value={tokens[provider] || ''}
                     onChange={e => setTokens(prev => ({ ...prev, [provider]: e.target.value }))}
                   />
@@ -85,12 +261,18 @@ export default function ModelPicker({ models, authProviders, onConnect, onDiscon
               <span className="select-piece white-piece">♔</span>
               White
             </label>
-            <select value={white} onChange={e => setWhite(e.target.value)}>
-              <option value="">Select model…</option>
-              {models.map(m => (
-                <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
-                  {m.name}
-                </option>
+            <select value={white} onChange={e => setWhite(e.target.value)} disabled={!authReady}>
+              <option value="">
+                {!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider above' : 'Select model…'}
+              </option>
+              {Object.entries(modelsByProvider).map(([provider, pModels]) => (
+                <optgroup key={provider} label={provider}>
+                  {pModels.map(m => (
+                    <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
+                      {m.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -102,12 +284,18 @@ export default function ModelPicker({ models, authProviders, onConnect, onDiscon
               <span className="select-piece black-piece">♚</span>
               Black
             </label>
-            <select value={black} onChange={e => setBlack(e.target.value)}>
-              <option value="">Select model…</option>
-              {models.map(m => (
-                <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
-                  {m.name}
-                </option>
+            <select value={black} onChange={e => setBlack(e.target.value)} disabled={!authReady}>
+              <option value="">
+                {!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider above' : 'Select model…'}
+              </option>
+              {Object.entries(modelsByProvider).map(([provider, pModels]) => (
+                <optgroup key={provider} label={provider}>
+                  {pModels.map(m => (
+                    <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
+                      {m.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

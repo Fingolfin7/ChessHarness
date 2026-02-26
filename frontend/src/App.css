@@ -516,3 +516,57 @@ html, body, #root {
   font-size: 0.78rem;
   color: var(--text-dim);
 }
+
+/* ── Copilot GitHub device flow ─────────────────────────────────────────── */
+.btn-inline.copilot-signin {
+  border-color: #238636;
+  color: #3fb950;
+}
+.btn-inline.copilot-signin:hover {
+  background: #238636;
+  color: #fff;
+}
+
+.device-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.device-flow-instructions {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.device-flow-instructions a {
+  color: var(--dark-sq);
+  text-decoration: none;
+}
+.device-flow-instructions a:hover { text-decoration: underline; }
+
+.device-code {
+  font-family: monospace;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--text);
+  text-align: center;
+  padding: 0.3rem 0;
+}
+
+.device-flow-waiting {
+  font-size: 0.8rem;
+  color: var(--thinking);
+  margin: 0;
+}
+
+.device-flow-error {
+  font-size: 0.8rem;
+  color: var(--error);
+  margin: 0;
+}
