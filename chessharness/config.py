@@ -34,9 +34,15 @@ class ModelEntry:
 
 @dataclass
 class ProviderConfig:
-    api_key: str
+    api_key: str = ""
+    bearer_token: str = ""
     models: list[ModelEntry] = field(default_factory=list)
     base_url: str | None = None
+
+    @property
+    def auth_token(self) -> str:
+        """Prefer bearer_token when present, else fall back to api_key."""
+        return self.bearer_token or self.api_key
 
 
 @dataclass
@@ -95,6 +101,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
             ]
             providers[provider_name] = ProviderConfig(
                 api_key=str(prov_raw.get("api_key", "")),
+                bearer_token=str(prov_raw.get("bearer_token", "")),
                 models=models,
                 base_url=prov_raw.get("base_url"),
             )

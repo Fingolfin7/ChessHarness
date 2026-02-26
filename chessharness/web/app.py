@@ -15,14 +15,16 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from chessharness.config import load_config
+from chessharness.auth_store import load_auth_tokens, save_auth_tokens
+from chessharness.config import ProviderConfig, load_config
 from chessharness.conv_logger import ConversationLogger
 from chessharness.game import run_game
 from chessharness.players import create_player
@@ -31,7 +33,22 @@ from chessharness.providers import create_provider
 
 app = FastAPI(title="ChessHarness")
 
+
 config = load_config()
+auth_tokens = load_auth_tokens()
+
+
+def _providers_with_auth_overrides() -> dict[str, ProviderConfig]:
+    providers = dict(config.providers)
+    for provider_name, token in auth_tokens.items():
+        if provider_name in providers and token:
+            providers[provider_name] = replace(providers[provider_name], bearer_token=token)
+    return providers
+
+
+def _provider_connected(provider_name: str) -> bool:
+    prov = config.providers.get(provider_name)
+    return bool((prov and prov.auth_token) or auth_tokens.get(provider_name))
 
 
 def _to_json(data: dict) -> str:
@@ -66,6 +83,47 @@ def get_config():
 
 
 # --------------------------------------------------------------------------- #
+# Auth                                                                         #
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/auth/providers")
+def get_auth_providers():
+    provider_names = sorted({provider for provider, _ in config.all_models()})
+    return [
+        {"provider": name, "connected": _provider_connected(name)}
+        for name in provider_names
+    ]
+
+
+@app.post("/api/auth/connect")
+def connect_auth(payload: dict):
+    provider = str(payload.get("provider", "")).strip()
+    token = str(payload.get("token", "")).strip()
+    if not provider:
+        raise HTTPException(status_code=400, detail="provider is required")
+    if provider not in config.providers:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+
+    auth_tokens[provider] = token
+    save_auth_tokens(auth_tokens)
+    return {"provider": provider, "connected": True}
+
+
+@app.post("/api/auth/disconnect")
+def disconnect_auth(payload: dict):
+    provider = str(payload.get("provider", "")).strip()
+    if not provider:
+        raise HTTPException(status_code=400, detail="provider is required")
+
+    if provider in auth_tokens:
+        del auth_tokens[provider]
+        save_auth_tokens(auth_tokens)
+    return {"provider": provider, "connected": _provider_connected(provider)}
+
+
+# --------------------------------------------------------------------------- #
 # WebSocket game                                                                #
 # --------------------------------------------------------------------------- #
 
@@ -80,8 +138,9 @@ async def game_ws(ws: WebSocket) -> None:
         w = start["white"]
         b = start["black"]
 
-        white_provider = create_provider(w["provider"], w["model_id"], config.providers)
-        black_provider = create_provider(b["provider"], b["model_id"], config.providers)
+        providers_cfg = _providers_with_auth_overrides()
+        white_provider = create_provider(w["provider"], w["model_id"], providers_cfg)
+        black_provider = create_provider(b["provider"], b["model_id"], providers_cfg)
 
         white_player = create_player(
             w["provider"], w["name"], white_provider, config.game.show_legal_moves, config.game.move_timeout
