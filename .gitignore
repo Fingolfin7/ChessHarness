@@ -50,3 +50,6 @@ frontend/dist/
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# Local auth tokens (web sign-in)
+.chessharness_auth.json

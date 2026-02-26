@@ -126,6 +126,7 @@ function applyEvent(state, event) {
 export default function App() {
   const [state, setState] = useState(INITIAL_STATE)
   const [models, setModels] = useState([])
+  const [authProviders, setAuthProviders] = useState({})
   const wsRef = useRef(null)
 
   useEffect(() => {
@@ -133,6 +134,17 @@ export default function App() {
       .then(r => r.json())
       .then(setModels)
       .catch(() => setState(s => ({ ...s, error: 'Could not load models from server.' })))
+
+    fetch('/api/auth/providers')
+      .then(r => r.json())
+      .then(rows => {
+        const mapped = {}
+        rows.forEach(row => {
+          mapped[row.provider] = !!row.connected
+        })
+        setAuthProviders(mapped)
+      })
+      .catch(() => {})
   }, [])
 
   const startGame = useCallback((white, black) => {
@@ -156,8 +168,89 @@ export default function App() {
     setState(INITIAL_STATE)
   }, [])
 
+
+  const connectProvider = useCallback(async (provider, token) => {
+    try {
+      const res = await fetch('/api/auth/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, token }),
+      })
+      if (!res.ok) return false
+      setAuthProviders(prev => ({ ...prev, [provider]: true }))
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  const disconnectProvider = useCallback(async (provider) => {
+    try {
+      const res = await fetch('/api/auth/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      })
+      if (!res.ok) return false
+      const data = await res.json()
+      setAuthProviders(prev => ({ ...prev, [provider]: !!data.connected }))
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+
+  const startOAuth = useCallback(async (provider) => {
+    try {
+      const res = await fetch('/api/auth/oauth/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        return { ok: false, message: data.detail || 'OAuth start failed.' }
+      }
+      return { ok: true, flow: data }
+    } catch {
+      return { ok: false, message: 'OAuth start request failed.' }
+    }
+  }, [])
+
+  const pollOAuth = useCallback(async (flowId) => {
+    try {
+      const res = await fetch('/api/auth/oauth/poll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow_id: flowId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        return { status: 'failed', error: data.detail || 'oauth_poll_failed' }
+      }
+      if (data.status === 'connected' && data.provider) {
+        setAuthProviders(prev => ({ ...prev, [data.provider]: true }))
+      }
+      return data
+    } catch {
+      return { status: 'failed', error: 'oauth_poll_request_failed' }
+    }
+  }, [])
+
   if (state.phase === 'setup') {
-    return <ModelPicker models={models} onStart={startGame} error={state.error} />
+    return (
+      <ModelPicker
+        models={models}
+        authProviders={authProviders}
+        onConnect={connectProvider}
+        onDisconnect={disconnectProvider}
+        onOAuthStart={startOAuth}
+        onOAuthPoll={pollOAuth}
+        onStart={startGame}
+        error={state.error}
+      />
+    )
   }
 
   return <GameView state={state} onStop={stopGame} onNewGame={newGame} />
