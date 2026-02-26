@@ -80,7 +80,7 @@ export default function ModelPicker({
   }
 
   const disconnect = async (provider) => {
-    if (provider === 'copilot') cancelCopilotFlow()
+    if (provider === 'copilot_chat') cancelCopilotFlow()
     const result = await onDisconnect(provider)
     setAuthMessage(result ? `Disconnected ${provider}.` : `Failed to disconnect ${provider}.`)
   }
@@ -150,11 +150,11 @@ export default function ModelPicker({
             {signinProviders.map(provider => {
               const connected = authProviders[provider]
 
-              if (provider === 'copilot') {
+              if (provider === 'copilot_chat') {
                 return (
-                  <div key="copilot" className="auth-row">
+                  <div key="copilot_chat" className="auth-row">
                     <div className="auth-provider">
-                      <strong>GitHub Models</strong>
+                      <strong>GitHub Copilot Chat</strong>
                       <span className={connected ? 'auth-connected' : 'auth-disconnected'}>
                         {connected ? 'Connected' : 'Not connected'}
                       </span>
@@ -167,9 +167,9 @@ export default function ModelPicker({
                         </button>
                         <button className="btn-inline" onClick={() => {
                           setAuthMessage('')
-                          setTokens(prev => ({ ...prev, copilot: prev.copilot ?? '' }))
+                          setTokens(prev => ({ ...prev, copilot_chat: prev.copilot_chat ?? '' }))
                         }}>
-                          Paste PAT
+                          Paste Token
                         </button>
                       </div>
                     )}
@@ -187,11 +187,11 @@ export default function ModelPicker({
                         <div className="device-code">{copilotFlow.user_code}</div>
                         <p className="device-flow-waiting">Waiting for authorization…</p>
                         <p className="device-flow-note">
-                          If models fail to load after sign-in, use a{' '}
+                          If sign-in fails, use a{' '}
                           <button className="btn-link" onClick={cancelCopilotFlow}>
-                            classic PAT
+                            token paste
                           </button>{' '}
-                          instead — no special scopes needed.
+                          fallback.
                         </p>
                         <button className="btn-inline danger" onClick={cancelCopilotFlow}>Cancel</button>
                       </div>
@@ -211,32 +211,28 @@ export default function ModelPicker({
                       </div>
                     )}
 
-                    {/* PAT paste — recommended method for GitHub Models */}
-                    {!copilotFlow && !connected && tokens.copilot !== undefined && (
+                    {/* Manual token paste fallback (advanced). */}
+                    {!copilotFlow && !connected && tokens.copilot_chat !== undefined && (
                       <>
                         <p className="auth-hint">
-                          Create a{' '}
-                          <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">
-                            classic PAT
-                          </a>{' '}
-                          at github.com/settings/tokens — no special scopes required.
+                          Paste a Copilot Chat access token (short-lived) or a GitHub token to be exchanged.
                         </p>
                         <input
                           type="password"
-                          placeholder="Paste GitHub classic PAT (ghp_…)"
-                          value={tokens.copilot || ''}
-                          onChange={e => setTokens(prev => ({ ...prev, copilot: e.target.value }))}
+                          placeholder="Paste Copilot or GitHub token"
+                          value={tokens.copilot_chat || ''}
+                          onChange={e => setTokens(prev => ({ ...prev, copilot_chat: e.target.value }))}
                         />
                         <div className="auth-actions">
-                          <button className="btn-inline" onClick={() => connect('copilot')}>Connect</button>
-                          <button className="btn-inline danger" onClick={() => setTokens(prev => { const n = {...prev}; delete n.copilot; return n })}>Cancel</button>
+                          <button className="btn-inline" onClick={() => connect('copilot_chat')}>Connect</button>
+                          <button className="btn-inline danger" onClick={() => setTokens(prev => { const n = {...prev}; delete n.copilot_chat; return n })}>Cancel</button>
                         </div>
                       </>
                     )}
 
                     {connected && (
                       <div className="auth-actions">
-                        <button className="btn-inline danger" onClick={() => disconnect('copilot')}>Disconnect</button>
+                        <button className="btn-inline danger" onClick={() => disconnect('copilot_chat')}>Disconnect</button>
                       </div>
                     )}
                   </div>

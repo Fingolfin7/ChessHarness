@@ -29,6 +29,15 @@ __all__ = [
 ]
 
 
+def _copilot_chat_headers() -> dict[str, str]:
+    # Copilot Chat endpoint expects IDE-style metadata headers.
+    return {
+        "Editor-Version": "vscode/1.95.3",
+        "Editor-Plugin-Version": "copilot-chat/0.22.1",
+        "Copilot-Integration-Id": "vscode-chat",
+    }
+
+
 def create_provider(
     provider_name: str,
     model_id: str,
@@ -54,17 +63,19 @@ def create_provider(
             return AnthropicProvider(api_key=token, model=model_id)
         case "google":
             return GoogleProvider(api_key=token, model=model_id)
-        case "kimi" | "copilot" | "groq" | "openrouter":
+        case "kimi" | "copilot" | "copilot_chat" | "groq" | "openrouter":
             if not prov_cfg.base_url:
                 raise ValueError(f"{provider_name} provider requires 'base_url' in config")
+            default_headers = _copilot_chat_headers() if provider_name in {"copilot", "copilot_chat"} else None
             return OpenAIProvider(
                 api_key=token,
                 model=model_id,
                 base_url=prov_cfg.base_url,
                 provider_label=provider_name,
+                default_headers=default_headers,
             )
         case _:
             raise ValueError(
                 f"Unknown provider: '{provider_name}'. "
-                "Supported: openai, anthropic, google, kimi, copilot, groq, openrouter"
+                "Supported: openai, anthropic, google, kimi, copilot_chat, groq, openrouter"
             )

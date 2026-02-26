@@ -64,36 +64,64 @@ providers:
         name: "Kimi 8k"
       - id: moonshot-v1-32k
         name: "Kimi 32k"
-
-
-  # GitHub Models (sign in via the web UI — no bearer_token needed here)
-  # Model IDs: use the bare name from the GitHub Models catalog (no "publisher/" prefix)
-  # Full catalog: https://github.com/marketplace/models
-  copilot:
-    base_url: "https://models.inference.ai.azure.com"
+  # GitHub Copilot Chat (sign in via the web UI; device flow recommended)
+  copilot_chat:
+    base_url: "https://api.githubcopilot.com"
     models:
-      - id: gpt-4.1
-        name: "GPT-4.1"
-      - id: gpt-4o
-        name: "GPT-4o"
-      - id: gpt-4o-mini
-        name: "GPT-4o Mini"
-      - id: o3-mini
-        name: "o3-mini"
-      - id: claude-sonnet-4-5
-        name: "Claude Sonnet 4.5"
-      - id: claude-3-5-sonnet
-        name: "Claude 3.5 Sonnet"
-      - id: Llama-4-Scout-17B-16E-Instruct
-        name: "Llama 4 Scout"
-      - id: Llama-3.3-70B-Instruct
-        name: "Llama 3.3 70B"
-      - id: Mistral-large-2411
-        name: "Mistral Large"
-      - id: Phi-4
-        name: "Phi-4"
-
-  # Groq (OpenAI-compatible API)
+      - id: "claude-haiku-4.5"
+        name: "claude-haiku-4.5"
+      - id: "claude-opus-4.5"
+        name: "claude-opus-4.5"
+      - id: "claude-opus-4.6"
+        name: "claude-opus-4.6"
+      - id: "claude-sonnet-4.5"
+        name: "claude-sonnet-4.5"
+      - id: "claude-sonnet-4.6"
+        name: "claude-sonnet-4.6"
+      - id: "gemini-2.5-pro"
+        name: "gemini-2.5-pro"
+      - id: "gpt-3.5-turbo"
+        name: "gpt-3.5-turbo"
+      - id: "gpt-3.5-turbo-0613"
+        name: "gpt-3.5-turbo-0613"
+      - id: "gpt-4"
+        name: "gpt-4"
+      - id: "gpt-4-0125-preview"
+        name: "gpt-4-0125-preview"
+      - id: "gpt-4-0613"
+        name: "gpt-4-0613"
+      - id: "gpt-4-o-preview"
+        name: "gpt-4-o-preview"
+      - id: "gpt-4.1"
+        name: "gpt-4.1"
+      - id: "gpt-4.1-2025-04-14"
+        name: "gpt-4.1-2025-04-14"
+      - id: "gpt-4o"
+        name: "gpt-4o"
+      - id: "gpt-4o-2024-05-13"
+        name: "gpt-4o-2024-05-13"
+      - id: "gpt-4o-2024-08-06"
+        name: "gpt-4o-2024-08-06"
+      - id: "gpt-4o-2024-11-20"
+        name: "gpt-4o-2024-11-20"
+      - id: "gpt-4o-mini"
+        name: "gpt-4o-mini"
+      - id: "gpt-4o-mini-2024-07-18"
+        name: "gpt-4o-mini-2024-07-18"
+      - id: "gpt-5-mini"
+        name: "gpt-5-mini"
+      - id: "gpt-5.1-codex"
+        name: "gpt-5.1-codex"
+      - id: "gpt-5.1-codex-max"
+        name: "gpt-5.1-codex-max"
+      - id: "gpt-5.2"
+        name: "gpt-5.2"
+      - id: "gpt-5.2-codex"
+        name: "gpt-5.2-codex"
+      - id: "gpt-5.3-codex"
+        name: "gpt-5.3-codex"
+      - id: "grok-code-fast-1"
+        name: "grok-code-fast-1"
   groq:
     api_key: "YOUR_GROQ_KEY"
     base_url: "https://api.groq.com/openai/v1"

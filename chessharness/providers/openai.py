@@ -49,10 +49,21 @@ class OpenAIProvider(LLMProvider):
         api_key=<moonshot key>
     """
 
-    def __init__(self, api_key: str, model: str, base_url: str | None = None, provider_label: str = "openai") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        base_url: str | None = None,
+        provider_label: str = "openai",
+        default_headers: dict[str, str] | None = None,
+    ) -> None:
         self._model = model
         self._provider_label = provider_label
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=default_headers,
+        )
 
     @property
     def supports_vision(self) -> bool:

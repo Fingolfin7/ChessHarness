@@ -21,7 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -64,39 +64,86 @@ app = FastAPI(title="ChessHarness")
 
 
 
+_COPILOT_CHAT_PROVIDER = "copilot_chat"
+
+# GitHub OAuth App client_id for Copilot device flow (same one used by copilot.vim / copilot.lua)
+_COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
+_COPILOT_CHAT_API_BASE = "https://api.githubcopilot.com"
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     """On server start, migrate any stale auth data from older installs."""
     changed = False
-    # Migrate: old installs stored the Copilot-internal base URL.
-    if auth_tokens.get("copilot__base_url") == "https://api.githubcopilot.com":
-        del auth_tokens["copilot__base_url"]
-        changed = True
-    # Migrate: ensure the copilot bearer token is the long-lived GitHub OAuth token.
-    github_token = auth_tokens.get("copilot__github_token")
-    if github_token and auth_tokens.get("copilot") != github_token:
-        auth_tokens["copilot"] = github_token
-        changed = True
+
+    # Migrate old provider key names to copilot_chat.
+    legacy_keys = [k for k in list(auth_tokens) if k == "copilot" or k.startswith("copilot__")]
+    for old_key in legacy_keys:
+        suffix = old_key[len("copilot"):]
+        new_key = f"{_COPILOT_CHAT_PROVIDER}{suffix}"
+        if new_key not in auth_tokens:
+            auth_tokens[new_key] = auth_tokens[old_key]
+            changed = True
+        if old_key in auth_tokens:
+            del auth_tokens[old_key]
+            changed = True
+
+    # Remove stale base_url metadata from previous experiments.
+    legacy_base_url_keys = [
+        f"{_COPILOT_CHAT_PROVIDER}__base_url",
+        "copilot__base_url",
+    ]
+    for key in legacy_base_url_keys:
+        if auth_tokens.get(key) in {
+            "https://api.githubcopilot.com",
+            "https://models.inference.ai.azure.com",
+        }:
+            del auth_tokens[key]
+            changed = True
+
     if changed:
         save_auth_tokens(auth_tokens)
-
-
-# GitHub OAuth App client_id for Copilot device flow (same one used by copilot.vim / copilot.lua)
-_COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
-_COPILOT_API_BASE = "https://models.inference.ai.azure.com"
 
 # All providers the app knows about, independent of config.yaml
 _KNOWN_PROVIDERS: dict[str, dict] = {
     "openai":    {"base_url": None},
     "anthropic": {"base_url": None},
     "google":    {"base_url": None},
-    "copilot":   {"base_url": _COPILOT_API_BASE},
+    _COPILOT_CHAT_PROVIDER: {"base_url": _COPILOT_CHAT_API_BASE},
 }
+
+
+def _canonical_provider_name(name: str) -> str:
+    """Map legacy provider ids to the current canonical name."""
+    return _COPILOT_CHAT_PROVIDER if name == "copilot" else name
+
+
+def _providers_from_config_with_migrations() -> dict[str, ProviderConfig]:
+    """Return config providers with legacy copilot renamed to copilot_chat."""
+    providers = dict(config.providers)
+    if "copilot" in providers and _COPILOT_CHAT_PROVIDER not in providers:
+        legacy = providers.pop("copilot")
+        providers[_COPILOT_CHAT_PROVIDER] = replace(legacy, base_url=_COPILOT_CHAT_API_BASE)
+    elif _COPILOT_CHAT_PROVIDER in providers:
+        providers[_COPILOT_CHAT_PROVIDER] = replace(
+            providers[_COPILOT_CHAT_PROVIDER],
+            base_url=_COPILOT_CHAT_API_BASE,
+        )
+        providers.pop("copilot", None)
+    return providers
+
+
+def _copilot_chat_openai_headers() -> dict[str, str]:
+    return {
+        "Editor-Version": "vscode/1.95.3",
+        "Editor-Plugin-Version": "copilot-chat/0.22.1",
+        "Copilot-Integration-Id": "vscode-chat",
+    }
 
 
 def _providers_with_auth_overrides() -> dict[str, ProviderConfig]:
     """Build the runtime provider map: models from config.yaml, tokens from auth_store."""
-    providers = dict(config.providers)
+    providers = _providers_from_config_with_migrations()
     for provider_name, info in _KNOWN_PROVIDERS.items():
         token = auth_tokens.get(provider_name)
         if not token:
@@ -114,8 +161,89 @@ def _providers_with_auth_overrides() -> dict[str, ProviderConfig]:
 
 
 def _provider_connected(provider_name: str) -> bool:
-    prov = config.providers.get(provider_name)
+    provider_name = _canonical_provider_name(provider_name)
+    providers_cfg = _providers_from_config_with_migrations()
+    prov = providers_cfg.get(provider_name)
     return bool((prov and prov.auth_token) or auth_tokens.get(provider_name))
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_timestamp_utc(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        # Handle both seconds and milliseconds epoch values.
+        seconds = float(value)
+        if seconds > 10_000_000_000:
+            seconds /= 1000.0
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return None
+
+
+async def _copilot_chat_exchange_token(github_token: str) -> dict:
+    """Exchange a GitHub token for a short-lived Copilot Chat access token."""
+    result = await _github_http(
+        "GET",
+        "https://api.github.com/copilot_internal/v2/token",
+        token=github_token,
+    )
+    if "token" not in result:
+        raise RuntimeError(result.get("message", "No token in Copilot exchange response"))
+    return result
+
+
+async def _ensure_copilot_chat_access_token(*, force_refresh: bool = False) -> None:
+    """Refresh cached Copilot Chat token from the stored GitHub token when needed."""
+    provider = _COPILOT_CHAT_PROVIDER
+    github_token = auth_tokens.get(f"{provider}__github_token")
+    if not github_token:
+        return
+
+    expires_at = _parse_timestamp_utc(auth_tokens.get(f"{provider}__expires_at"))
+    cached_token = auth_tokens.get(provider)
+    if (
+        not force_refresh
+        and cached_token
+        and expires_at is not None
+        and expires_at > (_utc_now() + timedelta(minutes=2))
+    ):
+        return
+
+    exchange = await _copilot_chat_exchange_token(github_token)
+    access_token = str(exchange["token"]).strip()
+    if not access_token:
+        raise RuntimeError("Copilot exchange returned an empty token")
+
+    parsed_expiry = (
+        _parse_timestamp_utc(exchange.get("expires_at"))
+        or (_utc_now() + timedelta(seconds=int(exchange.get("expires_in", 1800))))
+    )
+    auth_tokens[provider] = access_token
+    auth_tokens[f"{provider}__github_token"] = github_token
+    auth_tokens[f"{provider}__expires_at"] = parsed_expiry.isoformat()
+    save_auth_tokens(auth_tokens)
+
+
+async def _providers_with_auth_overrides_async() -> dict[str, ProviderConfig]:
+    try:
+        await _ensure_copilot_chat_access_token()
+    except Exception as exc:
+        logger.warning("Copilot Chat token refresh failed: %s", exc)
+    return _providers_with_auth_overrides()
 
 
 async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderConfig]) -> bool:
@@ -135,15 +263,22 @@ async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderCon
                 client = _genai.Client(api_key=token)
                 async for _ in client.aio.models.list():
                     break
-            elif provider_name == "copilot":
-                # Verify any GitHub token (device-flow OAuth or manual PAT) via the user API.
-                # The GitHub user endpoint accepts any valid token regardless of scope,
-                # and avoids OpenAI SDK schema-parsing issues with the models endpoint.
-                result = await _github_http("GET", "https://api.github.com/user", token=token)
-                if "login" not in result:
-                    return False
+            elif provider_name == _COPILOT_CHAT_PROVIDER:
+                # Support either a GitHub token (exchange first) or a direct Copilot token.
+                try:
+                    exchange = await _copilot_chat_exchange_token(token)
+                    if "token" in exchange:
+                        return True
+                except Exception:
+                    from openai import AsyncOpenAI
+                    client = AsyncOpenAI(
+                        api_key=token,
+                        base_url=prov.base_url,
+                        default_headers=_copilot_chat_openai_headers(),
+                    )
+                    await client.models.list()
             else:
-                # openai, copilot (manual token), kimi, groq, openrouter, …
+                # openai, kimi, groq, openrouter, …
                 from openai import AsyncOpenAI
                 client = AsyncOpenAI(api_key=token, base_url=prov.base_url)
                 await client.models.list()
@@ -264,9 +399,11 @@ async def _http_get(
 
 @app.get("/api/auth/providers")
 async def get_auth_providers():
-    providers_cfg = _providers_with_auth_overrides()
+    providers_cfg = await _providers_with_auth_overrides_async()
     # Always show all known providers plus any extras defined in config.yaml
-    provider_names = sorted(set(_KNOWN_PROVIDERS) | set(config.providers))
+    provider_names = sorted(
+        {_canonical_provider_name(name) for name in (set(_KNOWN_PROVIDERS) | set(config.providers))}
+    )
 
     async def check(name: str) -> dict:
         ok = await _verify_token(name, providers_cfg)
@@ -277,7 +414,7 @@ async def get_auth_providers():
 
 @app.post("/api/auth/connect")
 async def connect_auth(payload: dict):
-    provider = str(payload.get("provider", "")).strip()
+    provider = _canonical_provider_name(str(payload.get("provider", "")).strip())
     token = str(payload.get("token", "")).strip()
     if not provider:
         raise HTTPException(status_code=400, detail="provider is required")
@@ -287,8 +424,9 @@ async def connect_auth(payload: dict):
         raise HTTPException(status_code=400, detail="token is required")
 
     # Build a temporary ProviderConfig with the candidate token and verify it
-    if provider in config.providers:
-        test_cfg = {**config.providers, provider: replace(config.providers[provider], bearer_token=token)}
+    providers_from_cfg = _providers_from_config_with_migrations()
+    if provider in providers_from_cfg:
+        test_cfg = {**providers_from_cfg, provider: replace(providers_from_cfg[provider], bearer_token=token)}
     else:
         test_cfg = {provider: ProviderConfig(
             bearer_token=token,
@@ -297,16 +435,37 @@ async def connect_auth(payload: dict):
     if not await _verify_token(provider, test_cfg):
         raise HTTPException(status_code=401, detail=f"Token verification failed for {provider}")
 
-    auth_tokens[provider] = token
-    if provider == "copilot":
-        auth_tokens["copilot__github_token"] = token
+    if provider == _COPILOT_CHAT_PROVIDER:
+        # Prefer GitHub token -> Copilot token exchange; accept direct Copilot token as fallback.
+        exchanged = False
+        try:
+            me = await _github_http("GET", "https://api.github.com/user", token=token)
+            if "login" in me:
+                exchange = await _copilot_chat_exchange_token(token)
+                access_token = str(exchange["token"]).strip()
+                expires_at = (
+                    _parse_timestamp_utc(exchange.get("expires_at"))
+                    or (_utc_now() + timedelta(seconds=int(exchange.get("expires_in", 1800))))
+                )
+                auth_tokens[provider] = access_token
+                auth_tokens[f"{provider}__github_token"] = token
+                auth_tokens[f"{provider}__expires_at"] = expires_at.isoformat()
+                exchanged = True
+        except Exception:
+            exchanged = False
+        if not exchanged:
+            auth_tokens[provider] = token
+            auth_tokens.pop(f"{provider}__github_token", None)
+            auth_tokens.pop(f"{provider}__expires_at", None)
+    else:
+        auth_tokens[provider] = token
     save_auth_tokens(auth_tokens)
     return {"provider": provider, "connected": True}
 
 
 @app.post("/api/auth/disconnect")
 def disconnect_auth(payload: dict):
-    provider = str(payload.get("provider", "")).strip()
+    provider = _canonical_provider_name(str(payload.get("provider", "")).strip())
     if not provider:
         raise HTTPException(status_code=400, detail="provider is required")
 
@@ -319,6 +478,7 @@ def disconnect_auth(payload: dict):
     return {"provider": provider, "connected": _provider_connected(provider)}
 
 
+@app.post("/api/auth/copilot_chat/device/start")
 @app.post("/api/auth/copilot/device/start")
 async def copilot_device_start():
     """Begin GitHub device-authorization flow for Copilot."""
@@ -347,6 +507,7 @@ async def copilot_device_start():
     }
 
 
+@app.post("/api/auth/copilot_chat/device/poll")
 @app.post("/api/auth/copilot/device/poll")
 async def copilot_device_poll(payload: dict):
     """Poll GitHub to check if the user has authorized the device code."""
@@ -379,10 +540,19 @@ async def copilot_device_poll(payload: dict):
     if not github_token:
         return {"status": "error", "error": "No access_token in GitHub response"}
 
-    # The GitHub OAuth token is used directly with models.inference.ai.azure.com —
-    # no Copilot-internal token exchange needed or wanted.
-    auth_tokens["copilot"] = github_token
-    auth_tokens["copilot__github_token"] = github_token
+    try:
+        exchange = await _copilot_chat_exchange_token(github_token)
+        access_token = str(exchange["token"]).strip()
+        expires_at = (
+            _parse_timestamp_utc(exchange.get("expires_at"))
+            or (_utc_now() + timedelta(seconds=int(exchange.get("expires_in", 1800))))
+        )
+    except Exception as exc:
+        return {"status": "error", "error": f"Copilot token exchange failed: {exc}"}
+
+    auth_tokens[_COPILOT_CHAT_PROVIDER] = access_token
+    auth_tokens[f"{_COPILOT_CHAT_PROVIDER}__github_token"] = github_token
+    auth_tokens[f"{_COPILOT_CHAT_PROVIDER}__expires_at"] = expires_at.isoformat()
     save_auth_tokens(auth_tokens)
 
     return {"status": "connected"}
@@ -403,7 +573,7 @@ async def game_ws(ws: WebSocket) -> None:
         w = start["white"]
         b = start["black"]
 
-        providers_cfg = _providers_with_auth_overrides()
+        providers_cfg = await _providers_with_auth_overrides_async()
         white_provider = create_provider(w["provider"], w["model_id"], providers_cfg)
         black_provider = create_provider(b["provider"], b["model_id"], providers_cfg)
 

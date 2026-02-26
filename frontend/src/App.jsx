@@ -150,6 +150,7 @@ export default function App() {
   }, [])
 
   const startGame = useCallback((white, black) => {
+    setState(s => ({ ...s, error: null }))
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${location.host}/ws/game`)
     wsRef.current = ws
@@ -196,7 +197,7 @@ export default function App() {
 
   const startCopilotDeviceFlow = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/copilot/device/start', { method: 'POST' })
+      const res = await fetch('/api/auth/copilot_chat/device/start', { method: 'POST' })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) return { ok: false, error: data.detail || 'Failed to start.' }
       return { ok: true, ...data }
@@ -207,7 +208,7 @@ export default function App() {
 
   const pollCopilotDeviceFlow = useCallback(async (deviceCode) => {
     try {
-      const res = await fetch('/api/auth/copilot/device/poll', {
+      const res = await fetch('/api/auth/copilot_chat/device/poll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_code: deviceCode }),
@@ -217,7 +218,7 @@ export default function App() {
         return { status: 'error', error: data.detail || `Server error ${res.status}` }
       }
       if (data.status === 'connected') {
-        setAuthProviders(prev => ({ ...prev, copilot: true }))
+        setAuthProviders(prev => ({ ...prev, copilot_chat: true }))
         // Models are fetched in a background task on the server; give it a moment
         // then refresh so the dropdowns populate without requiring a page reload.
         setTimeout(refreshModels, 1500)
