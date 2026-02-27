@@ -55,6 +55,23 @@ function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBra
 
 // ── Sidebar ───────────────────────────────────────────────────────────────── //
 
+function exportPgn() {
+  fetch('/api/tournament/pgn')
+    .then(res => {
+      if (!res.ok) throw new Error('No completed games yet.')
+      return res.blob()
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'tournament.pgn'
+      a.click()
+      URL.revokeObjectURL(url)
+    })
+    .catch(err => alert(err.message))
+}
+
 function TournamentSidebar({ status, tournamentType, participantNames, currentRound, totalRounds, standings, matches, winner }) {
   // Derive per-participant match stats from the matches map
   const matchList = Object.values(matches)
@@ -158,7 +175,14 @@ function TournamentSidebar({ status, tournamentType, participantNames, currentRo
       {/* Current round matches */}
       {matchList.length > 0 && (
         <section className="tc-sidebar-section">
-          <h3 className="tc-sidebar-title">Matches</h3>
+          <div className="tc-sidebar-section-header">
+            <h3 className="tc-sidebar-title">Matches</h3>
+            {matchList.some(m => m.status === 'complete') && (
+              <button className="tc-export-btn" onClick={exportPgn} title="Download all game PGNs">
+                ↓ PGN
+              </button>
+            )}
+          </div>
           <div className="tc-match-list">
             {matchList.map(m => (
               <div key={m.matchId} className="tc-match-entry">
@@ -166,8 +190,10 @@ function TournamentSidebar({ status, tournamentType, participantNames, currentRo
                 <span className="tc-match-players">
                   {m.whiteName} <span className="tc-match-vs">vs</span> {m.blackName === 'BYE' ? 'BYE' : m.blackName}
                 </span>
-                {m.status === 'complete' && m.result && (
-                  <span className="tc-match-result">{m.result === '1/2-1/2' ? '½–½' : m.result}</span>
+                {m.status === 'complete' && (
+                  m.gameOverReason === 'max_retries_exceeded'
+                    ? <span className="tc-match-forfeit" title="Forfeited: max retries exceeded">forfeit</span>
+                    : m.result && <span className="tc-match-result">{m.result === '1/2-1/2' ? '½–½' : m.result}</span>
                 )}
               </div>
             ))}

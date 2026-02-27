@@ -33,6 +33,7 @@ const INITIAL_MATCH = {
   gameNum: 1,
   status: 'pending',
   result: null,
+  gameOverReason: null,
   advancingName: null,
   fen: 'start',
   lastMove: null,
@@ -92,7 +93,7 @@ function applyMatchGameEvent(match, gameEvent) {
     case 'InvalidMoveEvent':
       return { ...match, thinking: false }
     case 'GameOverEvent':
-      return { ...match, thinking: false, result: gameEvent.result }
+      return { ...match, thinking: false, result: gameEvent.result, gameOverReason: gameEvent.reason }
     default:
       return match
   }
@@ -167,6 +168,7 @@ function reducer(state, action) {
             ...prev,
             status: 'complete',
             result: action.result?.game_result,
+            gameOverReason: prev.gameOverReason,   // preserve reason captured from GameOverEvent
             advancingName: action.advancing_name,
           },
         },

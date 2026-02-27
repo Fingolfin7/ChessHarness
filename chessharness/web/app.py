@@ -624,6 +624,7 @@ from chessharness.tournaments import (
     create_tournament,
 )
 from chessharness.tournaments.events import (
+    MatchCompleteEvent,
     MatchGameEvent,
     TournamentCompleteEvent,
     TournamentEvent,
@@ -646,6 +647,7 @@ class _TournamentBroadcaster:
         self._game_subs: dict[str, list[asyncio.Queue]] = {}
         self._game_log: dict[str, list[dict]] = {}   # match_id → serialised events
         self._tournament_log: list[dict] = []         # all tournament events, serialised
+        self._pgns: list[str] = []                    # PGN for each completed game
         self.status: dict = {"state": "idle"}
         self._task: asyncio.Task | None = None
 
@@ -705,10 +707,14 @@ class _TournamentBroadcaster:
             raise RuntimeError("A tournament is already running.")
         self._tournament_log.clear()
         self._game_log.clear()
+        self._pgns.clear()
         self.status = {"state": "running", "participants": [p.display_name for p in participants]}
         self._task = asyncio.create_task(
             self._run(participants, config, player_factory, tournament)
         )
+
+    def collected_pgns(self) -> list[str]:
+        return list(self._pgns)
 
     async def _run(self, participants, config, player_factory, tournament) -> None:
         try:
@@ -719,6 +725,9 @@ class _TournamentBroadcaster:
                 if isinstance(event, MatchGameEvent):
                     g_payload = _to_json_dict(event.game_event)
                     await self._broadcast_game(event.match_id, g_payload)
+
+                if isinstance(event, MatchCompleteEvent) and event.result.pgn:
+                    self._pgns.append(event.result.pgn)
 
                 if isinstance(event, TournamentCompleteEvent):
                     self.status = {
@@ -756,6 +765,20 @@ def _to_json_dict(obj):
 @app.get("/api/tournament/status")
 def tournament_status():
     return _tournament_broadcaster.status
+
+
+@app.get("/api/tournament/pgn")
+def tournament_pgn():
+    from fastapi.responses import PlainTextResponse
+    pgns = _tournament_broadcaster.collected_pgns()
+    if not pgns:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="No completed games yet.")
+    content = "\n\n".join(pgns)
+    return PlainTextResponse(
+        content,
+        headers={"Content-Disposition": 'attachment; filename="tournament.pgn"'},
+    )
 
 
 @app.post("/api/tournament/start")

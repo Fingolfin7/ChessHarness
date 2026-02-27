@@ -12,6 +12,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext.jsx'
+import ModelDropdown, { VisionIcon } from '../ModelDropdown.jsx'
 
 const MAX_PLAYERS = 16
 const DRAW_OPTIONS = [
@@ -32,22 +33,12 @@ function ModelSelect({ index, value, modelsByProvider, onChange, onRemove, canRe
   return (
     <div className="ts-player-row">
       <span className="ts-player-seed">{index + 1}</span>
-      <select
-        className="ts-model-select"
+      <ModelDropdown
         value={value}
-        onChange={e => onChange(index, e.target.value)}
-      >
-        <option value="">Select model…</option>
-        {Object.entries(modelsByProvider).map(([provider, pModels]) => (
-          <optgroup key={provider} label={provider}>
-            {pModels.map(m => (
-              <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
-                {m.name}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
+        modelsByProvider={modelsByProvider}
+        onChange={val => onChange(index, val)}
+        placeholder="Select model…"
+      />
       {canRemove && (
         <button className="ts-remove-btn" onClick={() => onRemove(index)} title="Remove">✕</button>
       )}
@@ -160,7 +151,7 @@ export default function TournamentSetup() {
             <span className="ts-crown">♛</span>
             <h1>Tournament Setup</h1>
           </div>
-          <div style={{ width: 64 }} />
+          <div />
         </div>
 
         {error && <div className="setup-error">{error}</div>}
@@ -203,6 +194,10 @@ export default function TournamentSetup() {
             <button className="ts-add-btn" onClick={handleAdd}>
               + Add Player
             </button>
+          )}
+
+          {Object.values(modelsByProvider).flat().some(m => m.supports_vision) && (
+            <p className="ts-vision-legend"><VisionIcon className="ts-vision-icon" /> = supports image board input</p>
           )}
 
           {selectedCount >= 3 && byes > 0 && (
@@ -286,7 +281,7 @@ export default function TournamentSetup() {
             </select>
           </div>
 
-          <div className="settings-row settings-row-check">
+          <div className="ts-settings-row ts-settings-row--check">
             <label className="ts-settings-label settings-check-label" htmlFor="ts-legal-moves">
               <input
                 id="ts-legal-moves"
@@ -299,7 +294,7 @@ export default function TournamentSetup() {
             </label>
           </div>
 
-          <div className="settings-row settings-row-check">
+          <div className="ts-settings-row ts-settings-row--check">
             <label className="ts-settings-label settings-check-label" htmlFor="ts-annotate-pgn">
               <input
                 id="ts-annotate-pgn"

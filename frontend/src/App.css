@@ -824,11 +824,12 @@ html, body, #root {
 }
 
 .ts-header {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 1.4rem 1.8rem 1rem;
   border-bottom: 1px solid var(--border);
+  min-height: 5.5rem;
 }
 
 .ts-back-btn {
@@ -844,10 +845,15 @@ html, body, #root {
 .ts-back-btn:hover { border-color: var(--text-dim); color: var(--text); }
 
 .ts-title {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
+  pointer-events: none;
 }
 .ts-crown { font-size: 1.8rem; line-height: 1; }
 .ts-title h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.3px; }
@@ -953,14 +959,160 @@ html, body, #root {
   justify-content: space-between;
   gap: 1rem;
 }
+.ts-settings-row--check {
+  justify-content: flex-start;
+}
 .ts-settings-label {
   font-size: 0.88rem;
   color: var(--text-dim);
   flex-shrink: 0;
 }
 
+.ts-vision-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 0.2rem;
+}
+
+.vision-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 0.35rem;
+  align-self: flex-start;
+}
+
+/* Icon next to model select (tournament setup) */
+.ts-vision-icon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+/* Wrapper that puts the select + icon in a row (game page) */
+.player-select-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.player-select-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Icon next to model select (game page) */
+.vision-icon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+/* ── Custom model dropdown ───────────────────────────────────────────────── */
+
+.model-dd {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.model-dd-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 0.45rem 0.75rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+.model-dd-trigger:hover:not(:disabled) { border-color: var(--dark-sq); }
+.model-dd-trigger:focus { outline: none; border-color: var(--dark-sq); }
+.model-dd-trigger:disabled { opacity: 0.5; cursor: default; }
+
+.model-dd--large .model-dd-trigger {
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+}
+
+.model-dd-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.model-dd-dim { color: var(--text-dim); }
+
+.model-dd-eye {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.model-dd-chevron {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.model-dd-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-y: auto;
+  max-height: 240px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+}
+
+.model-dd-group-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0.5rem 0.75rem 0.2rem;
+}
+
+.model-dd-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 0.88rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.model-dd-item:hover { background: var(--surface-3); }
+.model-dd-item--active { background: var(--surface-3); color: var(--dark-sq); }
+
+.model-dd-item-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ts-card > .start-btn {
   margin: 1.2rem 1.8rem 1.4rem;
+  width: calc(100% - 3.6rem);
 }
 
 /* ── Tournament broadcast UI ─────────────────────────────────────────────── */
@@ -1095,6 +1247,26 @@ html, body, #root {
 .tc-match-players { flex: 1; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-match-vs      { color: var(--border); margin: 0 0.2rem; }
 .tc-match-result  { font-size: 0.75rem; color: var(--text-dim); flex-shrink: 0; }
+.tc-match-forfeit { font-size: 0.72rem; color: var(--error); flex-shrink: 0; opacity: 0.8; }
+
+.tc-sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tc-export-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.tc-export-btn:hover { border-color: var(--dark-sq); color: var(--text); }
 
 .tc-round-label {
   font-size: 0.9rem;
@@ -1145,7 +1317,7 @@ html, body, #root {
 
 .tc-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
   gap: 1rem;
 }
 
@@ -1211,6 +1383,7 @@ html, body, #root {
 }
 .tc-chip--done    { color: var(--text-dim); border: 1px solid var(--border); }
 .tc-chip--pending { color: var(--text-dim); border: 1px solid var(--border); opacity: 0.5; }
+.tc-chip--forfeit { color: var(--error); border: 1px solid rgba(224,92,92,0.4); }
 
 @keyframes pulse-green {
   0%, 100% { opacity: 1; }

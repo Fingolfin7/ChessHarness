@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import ModelDropdown, { VisionIcon } from './ModelDropdown.jsx'
 
 export default function ModelPicker({
   models, authProviders, authReady,
@@ -301,20 +302,14 @@ export default function ModelPicker({
                 <span className="select-piece white-piece">♔</span>
                 White
               </label>
-              <select value={white} onChange={e => setWhite(e.target.value)} disabled={!authReady}>
-                <option value="">
-                  {!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider' : 'Select model…'}
-                </option>
-                {Object.entries(modelsByProvider).map(([provider, pModels]) => (
-                  <optgroup key={provider} label={provider}>
-                    {pModels.map(m => (
-                      <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <ModelDropdown
+                large
+                value={white}
+                modelsByProvider={modelsByProvider}
+                onChange={setWhite}
+                placeholder={!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider' : 'Select model…'}
+                disabled={!authReady}
+              />
             </div>
 
             <div className="vs-divider">VS</div>
@@ -324,21 +319,19 @@ export default function ModelPicker({
                 <span className="select-piece black-piece">♚</span>
                 Black
               </label>
-              <select value={black} onChange={e => setBlack(e.target.value)} disabled={!authReady}>
-                <option value="">
-                  {!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider' : 'Select model…'}
-                </option>
-                {Object.entries(modelsByProvider).map(([provider, pModels]) => (
-                  <optgroup key={provider} label={provider}>
-                    {pModels.map(m => (
-                      <option key={`${m.provider}/${m.id}`} value={JSON.stringify(m)}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <ModelDropdown
+                large
+                value={black}
+                modelsByProvider={modelsByProvider}
+                onChange={setBlack}
+                placeholder={!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider' : 'Select model…'}
+                disabled={!authReady}
+              />
             </div>
+
+            {availableModels.some(m => m.supports_vision) && (
+              <p className="vision-legend"><VisionIcon className="vision-icon" /> = supports image board input</p>
+            )}
           </div>
 
           <div className="game-settings">

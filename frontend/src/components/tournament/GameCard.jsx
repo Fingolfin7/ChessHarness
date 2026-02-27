@@ -13,11 +13,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Chessboard } from 'react-chessboard'
 
-function StatusChip({ status, result, advancingName }) {
+function StatusChip({ status, result, gameOverReason }) {
   if (status === 'live') {
     return <span className="tc-chip tc-chip--live">● LIVE</span>
   }
   if (status === 'complete') {
+    if (gameOverReason === 'max_retries_exceeded') {
+      return <span className="tc-chip tc-chip--forfeit" title="Game forfeited: max retries exceeded">FORFEIT</span>
+    }
     const label = result === '1/2-1/2' ? '½–½' : result || 'DONE'
     return <span className="tc-chip tc-chip--done">{label}</span>
   }
@@ -41,7 +44,7 @@ export default function GameCard({ match, matchId, onClick }) {
 
   if (!match) return null
 
-  const { whiteName, blackName, status, result, advancingName, fen, lastMove } = match
+  const { whiteName, blackName, status, result, gameOverReason, advancingName, fen, lastMove } = match
 
   const isBye = blackName === 'BYE'
 
@@ -61,7 +64,7 @@ export default function GameCard({ match, matchId, onClick }) {
       {/* Match ID badge */}
       <div className="tc-card-header">
         <span className="tc-match-id">{matchId}</span>
-        <StatusChip status={status} result={result} advancingName={advancingName} />
+        <StatusChip status={status} result={result} gameOverReason={gameOverReason} />
       </div>
 
       {/* Black player (top) */}
