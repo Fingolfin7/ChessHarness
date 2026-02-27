@@ -712,7 +712,7 @@ class _TournamentBroadcaster:
 
     async def _run(self, participants, config, player_factory, tournament) -> None:
         try:
-            async for event in tournament.run(participants, game_cfg, player_factory):
+            async for event in tournament.run(participants, config, player_factory):
                 t_payload = _to_json_dict(event)
                 await self._broadcast_all(t_payload)
 
