@@ -31,6 +31,11 @@ This file tracks implementation work for adding non-API-key access paths and low
 - Budget caps by provider/auth mode.
 - Telemetry around token refresh failures and auth fallbacks.
 
+## Implemented reference notes
+
+- Copilot Chat auth flow (device login, token exchange, IDE headers, model discovery):
+  - [`docs/copilot-chat-auth-flow.md`](/C:/Users/mushu/PycharmProjects/ChessHarness/docs/copilot-chat-auth-flow.md)
+
 ## Safety constraints
 
 - Prefer official OAuth/device-code flows.

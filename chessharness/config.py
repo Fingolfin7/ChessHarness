@@ -30,6 +30,7 @@ class GameConfig:
 class ModelEntry:
     id: str    # model ID sent to the API
     name: str  # display name shown in the UI
+    supports_vision: bool | None = None  # explicit override; None = auto-detect
 
 
 @dataclass
@@ -97,7 +98,11 @@ def load_config(path: str | Path = "config.yaml") -> Config:
         for provider_name, prov_raw in providers_raw.items():
             prov_raw = prov_raw or {}
             models = [
-                ModelEntry(id=str(m["id"]), name=str(m["name"]))
+                ModelEntry(
+                    id=str(m["id"]),
+                    name=str(m["name"]),
+                    supports_vision=_parse_supports_vision(m.get("supports_vision")),
+                )
                 for m in prov_raw.get("models", [])
             ]
             providers[provider_name] = ProviderConfig(
@@ -125,3 +130,13 @@ def _validate(config: Config) -> None:
         raise ValueError("game.max_retries must be >= 1")
     # Providers and their model lists are now optional in config.yaml.
     # Connections and model discovery are handled at runtime via the web UI.
+
+
+def _parse_supports_vision(value: object) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    raise ValueError(
+        f"model.supports_vision must be true/false when provided, got {value!r}"
+    )

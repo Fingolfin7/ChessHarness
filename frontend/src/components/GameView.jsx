@@ -117,32 +117,32 @@ export default function GameView({ state, onStop, onNewGame }) {
           </div>
         </div>
 
-        {/* Sidebar */}
+        {/* Sidebar — Black on top, history in middle, White on bottom (Lichess-style) */}
         <div className="sidebar">
-          <div className="player-panels">
-            <PlayerPanel
-              color="white"
-              name={players.white?.name}
-              isActive={turn === 'white' && !isOver}
-              isThinking={isThinkingWhite}
-              invalidAttempt={invalidAttempt?.color === 'white' ? invalidAttempt : null}
-              lastMoveSan={lastWhiteSan}
-            />
-            <PlayerPanel
-              color="black"
-              name={players.black?.name}
-              isActive={turn === 'black' && !isOver}
-              isThinking={isThinkingBlack}
-              invalidAttempt={invalidAttempt?.color === 'black' ? invalidAttempt : null}
-              lastMoveSan={lastBlackSan}
-            />
-          </div>
+          <PlayerPanel
+            color="black"
+            name={players.black?.name}
+            isActive={turn === 'black' && !isOver}
+            isThinking={isThinkingBlack}
+            invalidAttempt={invalidAttempt?.color === 'black' ? invalidAttempt : null}
+            lastMoveSan={lastBlackSan}
+          />
 
           <MoveHistory
             moves={moves}
             plies={plies}
             viewIndex={viewIndex}
             onNavigate={goToPly}
+            pgn={result?.pgn}
+          />
+
+          <PlayerPanel
+            color="white"
+            name={players.white?.name}
+            isActive={turn === 'white' && !isOver}
+            isThinking={isThinkingWhite}
+            invalidAttempt={invalidAttempt?.color === 'white' ? invalidAttempt : null}
+            lastMoveSan={lastWhiteSan}
           />
         </div>
       </div>

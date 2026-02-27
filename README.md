@@ -20,11 +20,13 @@ providers:
     models:
       - id: gpt-4o
         name: "GPT-4o"
+        supports_vision: true  # optional override; omit to auto-detect
   anthropic:
     api_key: "sk-ant-..."
     models:
       - id: claude-opus-4-6
         name: "Claude Opus"
+        supports_vision: true
 ```
 
 ## Output
@@ -35,6 +37,17 @@ providers:
 | `./logs/` | Full conversation log (prompts + raw responses) |
 
 Press **Ctrl+C** to stop a game early — the partial PGN is saved automatically.
+
+## Testing
+
+Run tests locally with pytest:
+
+```bash
+uv run python -m pip install ".[test]"
+uv run pytest -q
+```
+
+GitHub Actions runs the same `pytest -q` suite on every push and pull request.
 
 ## How sign-in works (OpenAI / Copilot)
 

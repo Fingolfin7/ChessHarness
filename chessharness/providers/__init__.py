@@ -42,6 +42,7 @@ def create_provider(
     provider_name: str,
     model_id: str,
     providers_cfg: dict[str, ProviderConfig],
+    supports_vision_override: bool | None = None,
 ) -> LLMProvider:
     """Instantiate the correct LLMProvider for the given provider name and model ID."""
     prov_cfg = providers_cfg.get(provider_name)
@@ -58,11 +59,24 @@ def create_provider(
 
     match provider_name:
         case "openai":
-            return OpenAIProvider(api_key=token, model=model_id, base_url=prov_cfg.base_url)
+            return OpenAIProvider(
+                api_key=token,
+                model=model_id,
+                base_url=prov_cfg.base_url,
+                supports_vision_override=supports_vision_override,
+            )
         case "anthropic":
-            return AnthropicProvider(api_key=token, model=model_id)
+            return AnthropicProvider(
+                api_key=token,
+                model=model_id,
+                supports_vision_override=supports_vision_override,
+            )
         case "google":
-            return GoogleProvider(api_key=token, model=model_id)
+            return GoogleProvider(
+                api_key=token,
+                model=model_id,
+                supports_vision_override=supports_vision_override,
+            )
         case "kimi" | "copilot" | "copilot_chat" | "groq" | "openrouter":
             if not prov_cfg.base_url:
                 raise ValueError(f"{provider_name} provider requires 'base_url' in config")
@@ -73,6 +87,7 @@ def create_provider(
                 base_url=prov_cfg.base_url,
                 provider_label=provider_name,
                 default_headers=default_headers,
+                supports_vision_override=supports_vision_override,
             )
         case _:
             raise ValueError(

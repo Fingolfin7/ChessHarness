@@ -4,7 +4,27 @@ function plyIndex(plies, moveNumber, color) {
   return plies.findIndex(p => p.moveNumber === moveNumber && p.color === color)
 }
 
-export default function MoveHistory({ moves, plies, viewIndex, onNavigate }) {
+function buildPGN(moves) {
+  return moves.map(m => {
+    let s = `${m.number}.`
+    if (m.white?.san) s += ` ${m.white.san}`
+    if (m.black?.san) s += ` ${m.black.san}`
+    return s
+  }).join(' ')
+}
+
+function downloadPGN(pgn, moves) {
+  const text = pgn || buildPGN(moves)
+  const blob = new Blob([text], { type: 'text/plain' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'chess-game.pgn'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export default function MoveHistory({ moves, plies, viewIndex, onNavigate, pgn }) {
   const endRef = useRef(null)
 
   // Auto-scroll to bottom only when live (viewIndex === null)
@@ -14,7 +34,18 @@ export default function MoveHistory({ moves, plies, viewIndex, onNavigate }) {
 
   return (
     <div className="move-history">
-      <h3 className="panel-title">Move History</h3>
+      <div className="move-history-header">
+        <h3 className="panel-title">Move History</h3>
+        {moves.length > 0 && (
+          <button
+            className="export-pgn-btn"
+            onClick={() => downloadPGN(pgn, moves)}
+            title="Download PGN file"
+          >
+            Export PGN
+          </button>
+        )}
+      </div>
       <div className="moves-list">
         {moves.length === 0 && <p className="moves-empty">Game starting…</p>}
         {moves.map(m => {

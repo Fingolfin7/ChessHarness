@@ -37,8 +37,18 @@ async def _main(stop_event: asyncio.Event) -> None:
     white_sel, black_sel = select_players(config)
 
     # Build providers (LLM API clients)
-    white_provider = create_provider(white_sel.provider_name, white_sel.model.id, config.providers)
-    black_provider = create_provider(black_sel.provider_name, black_sel.model.id, config.providers)
+    white_provider = create_provider(
+        white_sel.provider_name,
+        white_sel.model.id,
+        config.providers,
+        supports_vision_override=white_sel.model.supports_vision,
+    )
+    black_provider = create_provider(
+        black_sel.provider_name,
+        black_sel.model.id,
+        config.providers,
+        supports_vision_override=black_sel.model.supports_vision,
+    )
 
     # Build players
     white_player = create_player(white_sel.provider_name, white_sel.display_name, white_provider, config.game.show_legal_moves, config.game.move_timeout)

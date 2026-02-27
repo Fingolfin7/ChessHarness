@@ -4,12 +4,13 @@ export default function ModelPicker({
   models, authProviders, authReady,
   onConnect, onDisconnect,
   onCopilotDeviceStart, onCopilotDevicePoll,
-  onStart, error,
+  onStart, error, defaultSettings,
 }) {
   const [white, setWhite] = useState('')
   const [black, setBlack] = useState('')
   const [tokens, setTokens] = useState({})
   const [authMessage, setAuthMessage] = useState('')
+  const [settings, setSettings] = useState({ maxRetries: 3, showLegalMoves: true, boardInput: 'text' })
 
   // Copilot device-flow state
   const [copilotFlow, setCopilotFlow] = useState(null)
@@ -59,7 +60,12 @@ export default function ModelPicker({
     const bm = JSON.parse(black)
     onStart(
       { provider: wm.provider, model_id: wm.id, name: wm.name },
-      { provider: bm.provider, model_id: bm.id, name: bm.name }
+      { provider: bm.provider, model_id: bm.id, name: bm.name },
+      {
+        max_retries: settings.maxRetries,
+        show_legal_moves: settings.showLegalMoves,
+        board_input: settings.boardInput,
+      }
     )
   }
 
@@ -92,6 +98,11 @@ export default function ModelPicker({
     pollTimerRef.current = null
     setCopilotFlow(null)
   }, [])
+
+  // Sync settings from server defaults once loaded
+  useEffect(() => {
+    if (defaultSettings) setSettings(defaultSettings)
+  }, [defaultSettings])
 
   // Clean up on unmount
   useEffect(() => () => clearTimeout(pollTimerRef.current), [])
@@ -317,6 +328,48 @@ export default function ModelPicker({
                   </optgroup>
                 ))}
               </select>
+            </div>
+          </div>
+
+          <div className="game-settings">
+            <div className="settings-title">Game Settings</div>
+            <div className="settings-grid">
+              <div className="settings-row">
+                <label className="settings-label" htmlFor="max-retries">Max Retries</label>
+                <input
+                  id="max-retries"
+                  type="number"
+                  min="1"
+                  max="10"
+                  className="settings-number"
+                  value={settings.maxRetries}
+                  onChange={e => setSettings(s => ({ ...s, maxRetries: Math.max(1, parseInt(e.target.value) || 1) }))}
+                />
+              </div>
+              <div className="settings-row">
+                <label className="settings-label" htmlFor="board-input">Board Input</label>
+                <select
+                  id="board-input"
+                  className="settings-select"
+                  value={settings.boardInput}
+                  onChange={e => setSettings(s => ({ ...s, boardInput: e.target.value }))}
+                >
+                  <option value="text">Text (FEN + moves)</option>
+                  <option value="image">Image (board screenshot)</option>
+                </select>
+              </div>
+              <div className="settings-row settings-row-check">
+                <label className="settings-label settings-check-label" htmlFor="legal-moves">
+                  <input
+                    id="legal-moves"
+                    type="checkbox"
+                    className="settings-checkbox"
+                    checked={settings.showLegalMoves}
+                    onChange={e => setSettings(s => ({ ...s, showLegalMoves: e.target.checked }))}
+                  />
+                  Include legal move list in prompt
+                </label>
+              </div>
             </div>
           </div>
 

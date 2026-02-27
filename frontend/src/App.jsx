@@ -130,6 +130,7 @@ export default function App() {
   const [models, setModels] = useState([])
   const [authProviders, setAuthProviders] = useState({})
   const [authReady, setAuthReady] = useState(false)
+  const [defaultSettings, setDefaultSettings] = useState(null)
   const wsRef = useRef(null)
 
   useEffect(() => {
@@ -147,15 +148,24 @@ export default function App() {
       })
       .catch(() => {})
       .finally(() => setAuthReady(true))
+
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(cfg => setDefaultSettings({
+        maxRetries: cfg.max_retries ?? 3,
+        showLegalMoves: cfg.show_legal_moves ?? true,
+        boardInput: cfg.board_input ?? 'text',
+      }))
+      .catch(() => {})
   }, [])
 
-  const startGame = useCallback((white, black) => {
+  const startGame = useCallback((white, black, settings) => {
     setState(s => ({ ...s, error: null }))
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${location.host}/ws/game`)
     wsRef.current = ws
 
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'start', white, black }))
+    ws.onopen = () => ws.send(JSON.stringify({ type: 'start', white, black, settings }))
     ws.onmessage = (e) => setState(s => applyEvent(s, JSON.parse(e.data)))
     ws.onerror = () => setState(s => ({ ...s, error: 'WebSocket connection error.', thinking: false }))
     ws.onclose = () => setState(s => s.phase === 'playing' ? { ...s, phase: 'over' } : s)
@@ -257,6 +267,7 @@ export default function App() {
         onCopilotDevicePoll={pollCopilotDeviceFlow}
         onStart={startGame}
         error={state.error}
+        defaultSettings={defaultSettings}
       />
     )
   }

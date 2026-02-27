@@ -25,12 +25,20 @@ _VISION_PREFIXES = (
 
 
 class AnthropicProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        supports_vision_override: bool | None = None,
+    ) -> None:
         self._model = model
+        self._supports_vision_override = supports_vision_override
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
 
     @property
     def supports_vision(self) -> bool:
+        if self._supports_vision_override is not None:
+            return self._supports_vision_override
         return any(self._model.startswith(p) for p in _VISION_PREFIXES)
 
     async def complete(

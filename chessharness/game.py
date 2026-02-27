@@ -105,6 +105,20 @@ async def run_game(
                 # Get last move for highlight arrow (if any)
                 last_move = board._board.peek() if board._board.move_stack else None
                 board_image = render_png(board._board, last_move)
+                if board_image is None:
+                    logger.warning(
+                        "Image mode requested but PNG render returned None [move=%s color=%s]. "
+                        "Falling back to text-only prompt for this request.",
+                        board.fullmove_number,
+                        current_color,
+                    )
+                else:
+                    logger.debug(
+                        "Rendered board PNG [move=%s color=%s bytes=%s]",
+                        board.fullmove_number,
+                        current_color,
+                        len(board_image),
+                    )
 
             state = GameState(
                 fen=board.fen,

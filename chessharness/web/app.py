@@ -1,5 +1,5 @@
-"""
-FastAPI application — the web UI backend.
+﻿"""
+FastAPI application â€” the web UI backend.
 
 Exposes:
   GET  /api/models         List all configured models
@@ -17,6 +17,7 @@ import dataclasses
 import json
 import logging
 import logging.handlers
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,17 +47,44 @@ auth_tokens = load_auth_tokens()
 _LOG_FILE = Path("./logs/chessharness.log")
 _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    handlers=[
-        logging.StreamHandler(),                                   # server console
-        logging.handlers.RotatingFileHandler(
-            _LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=3,  # 2 MB × 3 files
-            encoding="utf-8",
-        ),
-    ],
-)
+def _configure_logging() -> None:
+    """Set practical defaults: concise app logs, noisy deps at warning+."""
+    app_level_name = os.getenv("CHESSHARNESS_LOG_LEVEL", "INFO").upper()
+    app_level = getattr(logging, app_level_name, logging.INFO)
+
+    formatter = logging.Formatter(
+        "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
+    )
+    stream_handler = logging.StreamHandler()
+    file_handler = logging.handlers.RotatingFileHandler(
+        _LOG_FILE,
+        maxBytes=2 * 1024 * 1024,  # 2 MB
+        backupCount=3,
+        encoding="utf-8",
+    )
+    stream_handler.setFormatter(formatter)
+    file_handler.setFormatter(formatter)
+
+    chess_logger = logging.getLogger("chessharness")
+    chess_logger.setLevel(app_level)
+    chess_logger.handlers = [stream_handler, file_handler]
+    chess_logger.propagate = False
+
+    for noisy_name in (
+        "svglib",
+        "reportlab",
+        "urllib3",
+        "httpx",
+        "httpcore",
+        "openai",
+        "anthropic",
+        "google",
+        "uvicorn.access",
+    ):
+        logging.getLogger(noisy_name).setLevel(logging.WARNING)
+
+
+_configure_logging()
 logger = logging.getLogger("chessharness")
 
 
@@ -156,8 +184,22 @@ def _providers_with_auth_overrides() -> dict[str, ProviderConfig]:
                 p = replace(p, base_url=base_url)
             providers[provider_name] = p
         # Providers authenticated via UI but absent from config.yaml have no model list,
-        # so they won't appear in the dropdown — the user must add them to config.yaml.
+        # so they won't appear in the dropdown â€” the user must add them to config.yaml.
     return providers
+
+
+def _find_model_entry(
+    providers_cfg: dict[str, ProviderConfig],
+    provider_name: str,
+    model_id: str,
+) -> ModelEntry | None:
+    prov = providers_cfg.get(provider_name)
+    if prov is None:
+        return None
+    for model in prov.models:
+        if model.id == model_id:
+            return model
+    return None
 
 
 def _provider_connected(provider_name: str) -> bool:
@@ -259,10 +301,13 @@ async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderCon
                 client = _anthropic.AsyncAnthropic(api_key=token)
                 await client.models.list()
             elif provider_name == "google":
-                from google import genai as _genai
-                client = _genai.Client(api_key=token)
-                async for _ in client.aio.models.list():
-                    break
+                url = (
+                    "https://generativelanguage.googleapis.com/v1beta/models?"
+                    + urllib.parse.urlencode({"key": token})
+                )
+                data = await _http_get(url)
+                if not isinstance(data, dict) or "models" not in data:
+                    return False
             elif provider_name == _COPILOT_CHAT_PROVIDER:
                 # Support either a GitHub token (exchange first) or a direct Copilot token.
                 try:
@@ -278,7 +323,7 @@ async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderCon
                     )
                     await client.models.list()
             else:
-                # openai, kimi, groq, openrouter, …
+                # openai, kimi, groq, openrouter, â€¦
                 from openai import AsyncOpenAI
                 client = AsyncOpenAI(api_key=token, base_url=prov.base_url)
                 await client.models.list()
@@ -288,7 +333,7 @@ async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderCon
 
 
 def _to_json(data: dict) -> str:
-    """json.dumps with datetime → ISO-string support."""
+    """json.dumps with datetime â†’ ISO-string support."""
     def _default(obj: object) -> str:
         if isinstance(obj, (datetime, date)):
             return obj.isoformat()
@@ -306,7 +351,12 @@ _DIST = Path(__file__).parent.parent.parent / "frontend" / "dist"
 def get_models():
     providers_cfg = _providers_with_auth_overrides()
     return [
-        {"provider": provider, "id": m.id, "name": m.name}
+        {
+            "provider": provider,
+            "id": m.id,
+            "name": m.name,
+            "supports_vision": m.supports_vision,
+        }
         for provider, prov in providers_cfg.items()
         for m in prov.models
     ]
@@ -317,6 +367,7 @@ def get_config():
     return {
         "max_retries": config.game.max_retries,
         "show_legal_moves": config.game.show_legal_moves,
+        "board_input": config.game.board_input,
     }
 
 
@@ -567,21 +618,48 @@ async def game_ws(ws: WebSocket) -> None:
     await ws.accept()
 
     try:
-        # ── First message: { type: "start", white: {...}, black: {...} } ── #
+        # â”€â”€ First message: { type: "start", white: {...}, black: {...}, settings: {...} } â”€â”€ #
         start = await ws.receive_json()
 
         w = start["white"]
         b = start["black"]
 
+        # Apply per-game settings overrides sent from the UI
+        ui_settings = start.get("settings") or {}
+        game_cfg = config.game
+        if ui_settings:
+            overrides: dict = {}
+            if "max_retries" in ui_settings:
+                overrides["max_retries"] = max(1, int(ui_settings["max_retries"]))
+            if "show_legal_moves" in ui_settings:
+                overrides["show_legal_moves"] = bool(ui_settings["show_legal_moves"])
+            if ui_settings.get("board_input") in ("text", "image"):
+                overrides["board_input"] = ui_settings["board_input"]
+            if overrides:
+                game_cfg = replace(game_cfg, **overrides)
+        session_config = replace(config, game=game_cfg)
+
         providers_cfg = await _providers_with_auth_overrides_async()
-        white_provider = create_provider(w["provider"], w["model_id"], providers_cfg)
-        black_provider = create_provider(b["provider"], b["model_id"], providers_cfg)
+        white_model = _find_model_entry(providers_cfg, w["provider"], w["model_id"])
+        black_model = _find_model_entry(providers_cfg, b["provider"], b["model_id"])
+        white_provider = create_provider(
+            w["provider"],
+            w["model_id"],
+            providers_cfg,
+            supports_vision_override=(white_model.supports_vision if white_model else None),
+        )
+        black_provider = create_provider(
+            b["provider"],
+            b["model_id"],
+            providers_cfg,
+            supports_vision_override=(black_model.supports_vision if black_model else None),
+        )
 
         white_player = create_player(
-            w["provider"], w["name"], white_provider, config.game.show_legal_moves, config.game.move_timeout
+            w["provider"], w["name"], white_provider, session_config.game.show_legal_moves, session_config.game.move_timeout
         )
         black_player = create_player(
-            b["provider"], b["name"], black_provider, config.game.show_legal_moves, config.game.move_timeout
+            b["provider"], b["name"], black_provider, session_config.game.show_legal_moves, session_config.game.move_timeout
         )
 
         # Attach per-player loggers
@@ -601,7 +679,7 @@ async def game_ws(ws: WebSocket) -> None:
         async def _game_loop() -> None:
             try:
                 async for event in run_game(
-                    config, white_player, black_player, stop_event
+                    session_config, white_player, black_player, stop_event
                 ):
                     await ws.send_text(
                         _to_json({"type": type(event).__name__, **dataclasses.asdict(event)})
@@ -620,7 +698,7 @@ async def game_ws(ws: WebSocket) -> None:
                 stop_event.set()
 
         # Run game and receive concurrently; cancel whichever is still running
-        # when the other finishes (e.g. game over → no need to keep listening).
+        # when the other finishes (e.g. game over â†’ no need to keep listening).
         game_task = asyncio.create_task(_game_loop())
         recv_task = asyncio.create_task(_receive_loop())
 
@@ -660,3 +738,4 @@ if _DIST.exists():
     @app.get("/{full_path:path}")
     async def spa(full_path: str) -> FileResponse:
         return FileResponse(_DIST / "index.html")
+

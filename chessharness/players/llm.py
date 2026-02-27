@@ -15,6 +15,7 @@ Prompt design:
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from typing import TYPE_CHECKING
 
@@ -43,11 +44,19 @@ Rules for the ## Move section:
 - One move only, on its own line
 {legal_moves_rule}- Either SAN (e.g. e4, Nf3, cxd4, O-O, O-O-O, e8=Q) or UCI (e.g. e2e4, g1f3, e1g1, a7a8q) is accepted"""
 
-_USER = """\
+_USER_TEXT = """\
 Position (FEN): {fen}
 
 Board (you are {color_upper}, uppercase = White, lowercase = Black):
 {board_ascii}
+
+Move history ({move_count} half-moves):
+{move_history}
+{legal_moves_block}{retry_block}"""
+
+_USER_IMAGE = """\
+Board image is attached for the current position.
+You are playing as {color_upper}.
 
 Move history ({move_count} half-moves):
 {move_history}
@@ -65,6 +74,8 @@ You must choose a different, valid move.
 _UCI_RE = re.compile(r"\b([a-h][1-8][a-h][1-8][qrbnQRBN]?)\b")
 # SAN pattern: optional piece, destination square, optional promotion/annotation
 _SAN_RE = re.compile(r"\b([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|O-O-O|O-O)\b")
+
+logger = logging.getLogger(__name__)
 
 
 class LLMPlayer(Player):
@@ -166,21 +177,33 @@ class LLMPlayer(Player):
             else ""
         )
 
-        user_text = _USER.format(
-            fen=state.fen,
-            color_upper=state.color.upper(),
-            board_ascii=state.board_ascii,
-            move_count=len(state.move_history_san),
-            move_history=history_str,
-            legal_moves_block=legal_moves_block,
-            retry_block=retry_block,
-        )
-
-        image_bytes = (
-            state.board_image_bytes
-            if self._provider.supports_vision
-            else None
-        )
+        provider_supports_vision = self._provider.supports_vision
+        image_bytes = state.board_image_bytes if provider_supports_vision else None
+        if state.board_image_bytes and not provider_supports_vision:
+            logger.debug(
+                "Board image rendered but not attached because provider does not advertise vision support "
+                "[player=%s provider=%s]",
+                self.name,
+                self._provider.__class__.__name__,
+            )
+        if image_bytes:
+            user_text = _USER_IMAGE.format(
+                color_upper=state.color.upper(),
+                move_count=len(state.move_history_san),
+                move_history=history_str,
+                legal_moves_block=legal_moves_block,
+                retry_block=retry_block,
+            )
+        else:
+            user_text = _USER_TEXT.format(
+                fen=state.fen,
+                color_upper=state.color.upper(),
+                board_ascii=state.board_ascii,
+                move_count=len(state.move_history_san),
+                move_history=history_str,
+                legal_moves_block=legal_moves_block,
+                retry_block=retry_block,
+            )
 
         return [
             Message(role="system", content=system_text),

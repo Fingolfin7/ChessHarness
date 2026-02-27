@@ -18,16 +18,32 @@ from google.genai import types
 
 from chessharness.providers.base import LLMProvider, Message, ProviderError
 
-_VISION_PREFIXES = ("gemini-1.5", "gemini-2", "gemini-pro-vision")
+_VISION_PREFIXES = (
+    # Current Gemini families are multimodal, including Gemini 3 preview models.
+    "gemini-",
+    # Some integrations expose model names with provider-style prefixes.
+    "models/gemini-",
+    "google/gemini-",
+    # Legacy alias kept for compatibility.
+    "gemini-pro-vision",
+)
 
 
 class GoogleProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        supports_vision_override: bool | None = None,
+    ) -> None:
         self._model_name = model
+        self._supports_vision_override = supports_vision_override
         self._client = genai.Client(api_key=api_key)
 
     @property
     def supports_vision(self) -> bool:
+        if self._supports_vision_override is not None:
+            return self._supports_vision_override
         return any(self._model_name.startswith(p) for p in _VISION_PREFIXES)
 
     async def complete(

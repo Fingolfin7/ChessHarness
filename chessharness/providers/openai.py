@@ -30,6 +30,12 @@ _VISION_PREFIXES = (
     "o4",
     "gpt-5",
     "kimi-vl",
+    # OpenAI-compatible gateways (Copilot/OpenRouter/etc.) often expose
+    # Claude/Gemini model IDs through Chat Completions.
+    "claude-",
+    "gemini-",
+    "anthropic/claude",
+    "google/gemini",
 )
 
 # Reasoning models don't accept a custom temperature (must be omitted or 1)
@@ -56,9 +62,11 @@ class OpenAIProvider(LLMProvider):
         base_url: str | None = None,
         provider_label: str = "openai",
         default_headers: dict[str, str] | None = None,
+        supports_vision_override: bool | None = None,
     ) -> None:
         self._model = model
         self._provider_label = provider_label
+        self._supports_vision_override = supports_vision_override
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -67,6 +75,8 @@ class OpenAIProvider(LLMProvider):
 
     @property
     def supports_vision(self) -> bool:
+        if self._supports_vision_override is not None:
+            return self._supports_vision_override
         return any(self._model.startswith(p) for p in _VISION_PREFIXES)
 
     async def complete(

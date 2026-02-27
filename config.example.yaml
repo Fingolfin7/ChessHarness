@@ -33,28 +33,37 @@ providers:
     models:
       - id: gpt-4o
         name: "GPT-4o"
+        supports_vision: true
       - id: gpt-4o-mini
         name: "GPT-4o Mini"
+        supports_vision: true
       - id: o3-mini
         name: "o3-mini"
+        # Optional per-model override. When omitted, ChessHarness auto-detects by model ID.
+        # supports_vision: false
 
   anthropic:
     api_key: "YOUR_ANTHROPIC_KEY"
     models:
       - id: claude-opus-4-6
         name: "Claude Opus 4.6"
+        supports_vision: true
       - id: claude-sonnet-4-6
         name: "Claude Sonnet 4.6"
+        supports_vision: true
       - id: claude-haiku-4-5-20251001
         name: "Claude Haiku 4.5"
+        supports_vision: true
 
   google:
     api_key: "YOUR_GOOGLE_KEY"
     models:
       - id: gemini-2.0-flash
         name: "Gemini 2.0 Flash"
+        supports_vision: true
       - id: gemini-1.5-pro
         name: "Gemini 1.5 Pro"
+        supports_vision: true
 
   kimi:
     api_key: "YOUR_KIMI_KEY"
@@ -62,8 +71,10 @@ providers:
     models:
       - id: moonshot-v1-8k
         name: "Kimi 8k"
+        supports_vision: false
       - id: moonshot-v1-32k
         name: "Kimi 32k"
+        supports_vision: false
   # GitHub Copilot Chat (sign in via the web UI; device flow recommended)
   copilot_chat:
     base_url: "https://api.githubcopilot.com"
