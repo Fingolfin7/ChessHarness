@@ -93,16 +93,7 @@ providers:
       - id: gemini-2.5-flash
         name: "Gemini 2.5 Flash"
         supports_vision: true
-  kimi:
-    api_key: "YOUR_KIMI_KEY"
-    base_url: "https://api.moonshot.cn/v1"
-    models:
-      - id: moonshot-v1-8k
-        name: "Kimi 8k"
-        supports_vision: false
-      - id: moonshot-v1-32k
-        name: "Kimi 32k"
-        supports_vision: false
+
   # GitHub Copilot Chat (sign in via the web UI; device flow recommended)
   copilot_chat:
     base_url: "https://api.githubcopilot.com"
@@ -149,5 +140,19 @@ providers:
     api_key: "YOUR_OPENROUTER_KEY"
     base_url: "https://openrouter.ai/api/v1"
     models:
-      - id: openai/gpt-4o-mini
-        name: "OpenRouter GPT-4o Mini"
+      - id: openai/gpt-oss-120b:free
+        name: "OpenRouter GPT-OSS-120B"
+        supports_vision: false
+      - id: openai/gpt-oss-20b:free
+        name: "OpenRouter GPT-OSS-20B"
+        supports_vision: false
+      - id: qwen/qwen3-235b-a22b-thinking-2507
+        name: "OpenRouter Qwen3 235B A22B Thinking 2507"
+        supports_vision: false
+      - id: nvidia/nemotron-3-nano-30b-a3b:free
+        name: "OpenRouter NVIDIA: Nemotron 3 Nano 30B A3B"
+        supports_vision: false
+      - id: z-ai/glm-4.5-air:free
+        name: "OpenRouter GLM 4.5 Air"
+        supports_vision: false
+

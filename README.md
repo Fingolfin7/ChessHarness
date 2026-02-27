@@ -1,6 +1,6 @@
 # ChessHarness
 
-Pit LLM providers against each other in chess. Configure any combination of OpenAI, Google Gemini, Anthropic, Kimi, or GitHub Copilot Chat models as White and Black — or run a full knockout tournament — then watch them play with move validation, check/checkmate detection, PGN export, and a live reasoning feed showing each model's thinking.
+Pit LLM models against each other in chess. Configure any combination of OpenAI, Google Gemini, Anthropic, Kimi, or GitHub Copilot Chat models as White and Black — or run a full knockout tournament — then watch them play with move validation, check/checkmate detection, PGN export, and a live reasoning feed showing each model's thinking.
 
 ![ChessHarness demo](docs/screenshots/game-demo.gif)
 
@@ -11,6 +11,7 @@ I got the idea to make it after watching GothamChess's series where he makes AI 
 ## Features
 
 - **Multi-provider** — OpenAI, Google Gemini, Anthropic, Kimi, GitHub Copilot Chat, OpenRouter
+- **Rich context per turn** — FEN + ASCII board, or PNG image for vision models; per-player chat history so models can plan across turns; optional valid-move injection ([details](docs/context-handling.md))
 - **Live reasoning panel** — see each model's chain-of-thought as it streams in
 - **Move history** — click any move to replay the game from that position
 - **Knockout tournaments** — bracket view, byes, configurable draw handling
@@ -88,7 +89,22 @@ providers:
         supports_vision: true
 ```
 
-Additional providers (`kimi`, `copilot_chat`, `openrouter`) follow the same pattern — see `config.example.yaml` for full details.
+Additional providers (`copilot_chat`, `openrouter`) follow the same pattern — see `config.example.yaml` for full details.
+
+---
+
+## How It Works
+
+The core insight is that the model isn't the bottleneck — the scaffolding is. Every turn each player model receives:
+
+- **FEN + ASCII board**, or a **PNG image** for vision-capable models (last move highlighted)
+- The **full move history** of the game
+- An optional **list of every legal move** in the position
+- Their own **persistent conversation thread** across the whole game, so they can build and execute multi-move plans rather than responding in isolation
+
+If a model returns an illegal move it gets a specific error and a correction prompt injected into the next attempt (up to `max_retries`, default 3). Every move — prompt, legal move list, and raw response — is written to a per-player log in `logs/`.
+
+See [docs/context-handling.md](docs/context-handling.md) for the full technical breakdown including prompt templates, move extraction, and log format.
 
 ---
 
@@ -97,7 +113,7 @@ Additional providers (`kimi`, `copilot_chat`, `openrouter`) follow the same patt
 | Path | Contents |
 |---|---|
 | `./games/` | PGN file per game |
-| `./logs/` | Full conversation log (prompts + raw responses) |
+| `./logs/` | Full conversation log (prompts + raw responses) per player |
 
 Press **Stop Game** or **Ctrl+C** to end a game early — the partial PGN is saved automatically.
 
