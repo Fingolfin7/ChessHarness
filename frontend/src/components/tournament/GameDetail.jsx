@@ -23,7 +23,7 @@ function resultText(result) {
 export default function GameDetail({ matchId, matchInfo, onBack }) {
   const state = useGameSocket(matchId)
   const { players, fen, lastMove, turn, thinking, reasoning,
-          moves, plies, invalidAttempt, result, error, phase } = state
+          moves, plies, invalidAttempt, result, error, phase, connStatus } = state
 
   const isOver = phase === 'over'
   const [viewIndex, setViewIndex] = useState(null)
@@ -89,7 +89,13 @@ export default function GameDetail({ matchId, matchInfo, onBack }) {
       <header className="game-header">
         <button className="btn btn-back" onClick={onBack}>← Back</button>
         <span className="tc-detail-match-id">Match {matchId}</span>
-        <div className="header-controls" />
+        <div className="header-controls">
+          {connStatus !== 'connected' && (
+            <span className="tc-conn-badge tc-conn-badge--reconnecting">
+              ↻ {connStatus === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
+            </span>
+          )}
+        </div>
       </header>
 
       {result && (

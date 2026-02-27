@@ -17,7 +17,7 @@ import BracketPanel from './BracketPanel.jsx'
 
 // ── Header ────────────────────────────────────────────────────────────────── //
 
-function TournamentHeader({ status, currentRound, totalRounds, onBracket }) {
+function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBracket }) {
   const navigate = useNavigate()
 
   const roundLabel = totalRounds
@@ -36,6 +36,11 @@ function TournamentHeader({ status, currentRound, totalRounds, onBracket }) {
       <span className="tc-round-label">{roundLabel}</span>
       <div className="header-controls">
         <span className={`tc-status-label tc-status-${status}`}>{statusLabel}</span>
+        {connStatus !== 'connected' && (
+          <span className="tc-conn-badge tc-conn-badge--reconnecting">
+            ↻ {connStatus === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
+          </span>
+        )}
         <button className="btn" onClick={onBracket}>Bracket</button>
         <button className="btn btn-back" onClick={() => navigate('/tournament/setup')}>
           ← New Tournament
@@ -180,6 +185,7 @@ export default function TournamentPage() {
   const {
     status, tournamentType, participantNames,
     currentRound, totalRounds, pairings, matches, standings, winner, error,
+    connStatus,
   } = tournamentState
 
   const [selectedMatchId, setSelectedMatchId] = useState(null)
@@ -201,6 +207,7 @@ export default function TournamentPage() {
         status={status}
         currentRound={currentRound}
         totalRounds={totalRounds}
+        connStatus={connStatus}
         onBracket={() => setBracketOpen(true)}
       />
 

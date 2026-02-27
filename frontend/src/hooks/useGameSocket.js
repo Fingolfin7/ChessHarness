@@ -2,13 +2,15 @@
  * useGameSocket
  *
  * Connects to /ws/tournament/game/{matchId} for the GameDetail drill-down view.
- * Reuses the same applyEvent reducer logic as the main single-game App.jsx.
+ * Automatically reconnects on drop; the server replays the per-match event log
+ * on each new connection, so GameStartEvent resets state before moves replay.
  *
- * Only connects while matchId is non-null; disconnects when matchId changes or
- * the component unmounts.
+ * Returns all game state fields plus `connStatus`:
+ *   'connecting' | 'connected' | 'reconnecting'
  */
 
-import { useEffect, useReducer, useRef } from 'react'
+import { useReducer, useMemo } from 'react'
+import { useReconnectingWebSocket } from './useReconnectingWebSocket.js'
 
 const INITIAL_STATE = {
   phase: 'playing',
@@ -99,28 +101,16 @@ function applyEvent(state, event) {
   }
 }
 
-function reducer(state, event) {
-  return applyEvent(state, event)
-}
-
 export function useGameSocket(matchId) {
-  const [state, dispatch] = useReducer(reducer, INITIAL_STATE)
-  const wsRef = useRef(null)
+  const [state, dispatch] = useReducer(applyEvent, INITIAL_STATE)
 
-  useEffect(() => {
-    if (!matchId) return
-
+  const url = useMemo(() => {
+    if (!matchId) return null
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${location.host}/ws/tournament/game/${matchId}`)
-    wsRef.current = ws
-
-    ws.onmessage = (e) => {
-      try { dispatch(JSON.parse(e.data)) } catch { /* ignore */ }
-    }
-    ws.onerror = () => dispatch({ type: 'error', message: 'WebSocket error.' })
-
-    return () => ws.close()
+    return `${protocol}//${location.host}/ws/tournament/game/${matchId}`
   }, [matchId])
 
-  return state
+  const connStatus = useReconnectingWebSocket(url, dispatch)
+
+  return { ...state, connStatus }
 }

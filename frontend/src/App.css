@@ -1114,6 +1114,23 @@ html, body, #root {
 .tc-status-idle     { color: var(--text-dim); }
 .tc-status-error    { color: var(--error); border: 1px solid #e05c5c66; }
 
+.tc-conn-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 99px;
+  margin-right: 0.25rem;
+}
+.tc-conn-badge--reconnecting {
+  color: #e6a817;
+  border: 1px solid #e6a81766;
+  animation: pulse-amber 1.4s ease-in-out infinite;
+}
+@keyframes pulse-amber {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
 .tc-idle-message {
   display: flex;
   flex-direction: column;

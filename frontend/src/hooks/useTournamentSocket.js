@@ -1,24 +1,26 @@
 /**
  * useTournamentSocket
  *
- * Connects to /ws/tournament and maintains a full snapshot of tournament state:
- * - bracket (participants, rounds, pairings)
- * - per-match state (fen, moves, status, result)
- * - standings
- * - tournament status (idle | running | complete)
+ * Connects to /ws/tournament and maintains a full snapshot of tournament state.
+ * Automatically reconnects on drop; the server replays the full event log on
+ * each new connection so state is always reconstructed correctly.
+ *
+ * Returns all tournament state fields plus `connStatus`:
+ *   'connecting' | 'connected' | 'reconnecting'
  */
 
-import { useEffect, useReducer, useRef } from 'react'
+import { useReducer } from 'react'
+import { useReconnectingWebSocket } from './useReconnectingWebSocket.js'
 
 const INITIAL_STATE = {
-  status: 'idle',          // 'idle' | 'running' | 'complete' | 'error'
+  status: 'idle',
   tournamentType: null,
   participantNames: [],
   totalRounds: 0,
   currentRound: 0,
-  pairings: [],             // current round pairings: [{matchId, whiteName, blackName}]
-  matches: {},              // matchId → MatchState
-  standings: [],            // [{name, wins, draws, losses, points}]
+  pairings: [],
+  matches: {},
+  standings: [],
   winner: null,
   error: null,
 }
@@ -29,10 +31,9 @@ const INITIAL_MATCH = {
   blackName: null,
   roundNum: null,
   gameNum: 1,
-  status: 'pending',        // 'pending' | 'live' | 'complete'
-  result: null,             // game result string "1-0" etc.
+  status: 'pending',
+  result: null,
   advancingName: null,
-  // Live game state (from MatchGameEvent wrapping GameEvents)
   fen: 'start',
   lastMove: null,
   turn: 'white',
@@ -112,7 +113,6 @@ function reducer(state, action) {
       const pairings = action.pairings.map(([matchId, whiteName, blackName]) => ({
         matchId, whiteName, blackName,
       }))
-      // Pre-create match entries for this round
       const newMatches = { ...state.matches }
       for (const { matchId, whiteName, blackName } of pairings) {
         newMatches[matchId] = {
@@ -207,25 +207,13 @@ function reducer(state, action) {
   }
 }
 
+const WS_URL = (() => {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${location.host}/ws/tournament`
+})()
+
 export function useTournamentSocket() {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE)
-  const wsRef = useRef(null)
-
-  useEffect(() => {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${location.host}/ws/tournament`)
-    wsRef.current = ws
-
-    ws.onmessage = (e) => {
-      try {
-        const event = JSON.parse(e.data)
-        dispatch(event)
-      } catch { /* ignore parse errors */ }
-    }
-    ws.onerror = () => dispatch({ type: 'error', message: 'WebSocket connection error.' })
-
-    return () => ws.close()
-  }, [])
-
-  return state
+  const connStatus = useReconnectingWebSocket(WS_URL, dispatch)
+  return { ...state, connStatus }
 }
