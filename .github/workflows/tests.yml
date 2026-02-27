@@ -25,5 +25,9 @@ jobs:
       - name: Sync environment
         run: uv sync --extra test
 
+      - name: Prepare config.yaml for tests
+        shell: pwsh
+        run: Copy-Item -Path config.example.yaml -Destination config.yaml -Force
+
       - name: Run pytest
         run: uv run pytest -q

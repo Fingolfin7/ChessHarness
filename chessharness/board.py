@@ -141,6 +141,14 @@ class ChessBoard:
     def set_result(self, result: str) -> None:
         self._game.headers["Result"] = result
 
-    def to_pgn(self) -> str:
-        exporter = chess.pgn.StringExporter(headers=True, variations=False, comments=False)
+    def annotate_last_move(self, comment: str) -> None:
+        """Attach a PGN comment to the most recently played move node."""
+        self._node.comment = comment
+
+    def to_pgn(self, *, include_comments: bool = False) -> str:
+        exporter = chess.pgn.StringExporter(
+            headers=True,
+            variations=False,
+            comments=include_comments,
+        )
         return self._game.accept(exporter)

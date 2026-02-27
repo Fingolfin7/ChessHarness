@@ -22,6 +22,10 @@ game:
   # false — models must recall legal moves themselves; harder, tests raw chess ability.
   show_legal_moves: true
 
+  # true  — embed model reasoning as comments in exported PGN ("annotated PGN")
+  # false — export plain PGN without reasoning comments
+  annotate_pgn: false
+
   save_pgn: true
   pgn_dir: "./games"
 

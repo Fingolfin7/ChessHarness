@@ -68,7 +68,7 @@ async def run_game(
     while not board.is_game_over:
         if stop_event and stop_event.is_set():
             board.set_result("*")
-            pgn = board.to_pgn()
+            pgn = board.to_pgn(include_comments=config.game.annotate_pgn)
             yield GameOverEvent(
                 result="*",
                 reason="interrupted",
@@ -227,6 +227,8 @@ async def run_game(
             # --- Apply the move ---
             move_number_before = state.move_number  # capture before push (fullmove_number increments after black)
             san = board.push_move(parsed)
+            if config.game.annotate_pgn and response.reasoning.strip():
+                board.annotate_last_move(_reasoning_comment(response.reasoning))
             yield MoveAppliedEvent(
                 color=current_color,
                 move_uci=response.move,
@@ -254,7 +256,7 @@ async def run_game(
             winner = black_player if current_color == "white" else white_player
             result: str = "0-1" if current_color == "white" else "1-0"
             board.set_result(result)
-            pgn = board.to_pgn()
+            pgn = board.to_pgn(include_comments=config.game.annotate_pgn)
 
             yield GameOverEvent(
                 result=result,  # type: ignore[arg-type]
@@ -270,7 +272,7 @@ async def run_game(
     # --- Normal game termination ---
     result = board.result()
     board.set_result(result)
-    pgn = board.to_pgn()
+    pgn = board.to_pgn(include_comments=config.game.annotate_pgn)
 
     winner_color = board.winner_color()
     winner_name: str | None = None
@@ -300,3 +302,12 @@ async def _save_pgn(pgn: str, pgn_dir: Path) -> None:
     await loop.run_in_executor(
         None, lambda: pgn_path.write_text(pgn, encoding="utf-8")
     )
+
+
+def _reasoning_comment(reasoning: str) -> str:
+    """Normalize model reasoning for PGN comments."""
+    text = " ".join(reasoning.split()).strip()
+    text = text.replace("{", "(").replace("}", ")")
+    if len(text) > 2000:
+        return text[:1997] + "..."
+    return text

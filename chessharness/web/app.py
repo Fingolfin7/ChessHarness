@@ -368,6 +368,7 @@ def get_config():
         "max_retries": config.game.max_retries,
         "show_legal_moves": config.game.show_legal_moves,
         "board_input": config.game.board_input,
+        "annotate_pgn": config.game.annotate_pgn,
     }
 
 
@@ -635,6 +636,8 @@ async def game_ws(ws: WebSocket) -> None:
                 overrides["show_legal_moves"] = bool(ui_settings["show_legal_moves"])
             if ui_settings.get("board_input") in ("text", "image"):
                 overrides["board_input"] = ui_settings["board_input"]
+            if "annotate_pgn" in ui_settings:
+                overrides["annotate_pgn"] = bool(ui_settings["annotate_pgn"])
             if overrides:
                 game_cfg = replace(game_cfg, **overrides)
         session_config = replace(config, game=game_cfg)

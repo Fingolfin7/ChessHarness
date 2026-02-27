@@ -21,6 +21,7 @@ class GameConfig:
     max_retries: int = 3
     board_input: BoardInputMode = "text"
     show_legal_moves: bool = True
+    annotate_pgn: bool = False
     move_timeout: int = 120   # seconds before a model response is abandoned
     save_pgn: bool = True
     pgn_dir: str = "./games"
@@ -88,6 +89,7 @@ def load_config(path: str | Path = "config.yaml") -> Config:
             max_retries=int(game_raw.get("max_retries", 3)),
             board_input=game_raw.get("board_input", "text"),
             show_legal_moves=bool(game_raw.get("show_legal_moves", True)),
+            annotate_pgn=bool(game_raw.get("annotate_pgn", False)),
             move_timeout=int(game_raw.get("move_timeout", 120)),
             save_pgn=bool(game_raw.get("save_pgn", True)),
             pgn_dir=game_raw.get("pgn_dir", "./games"),

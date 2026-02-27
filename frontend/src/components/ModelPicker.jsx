@@ -10,7 +10,12 @@ export default function ModelPicker({
   const [black, setBlack] = useState('')
   const [tokens, setTokens] = useState({})
   const [authMessage, setAuthMessage] = useState('')
-  const [settings, setSettings] = useState({ maxRetries: 3, showLegalMoves: true, boardInput: 'text' })
+  const [settings, setSettings] = useState({
+    maxRetries: 3,
+    showLegalMoves: true,
+    boardInput: 'text',
+    annotatePgn: false,
+  })
 
   // Copilot device-flow state
   const [copilotFlow, setCopilotFlow] = useState(null)
@@ -65,6 +70,7 @@ export default function ModelPicker({
         max_retries: settings.maxRetries,
         show_legal_moves: settings.showLegalMoves,
         board_input: settings.boardInput,
+        annotate_pgn: settings.annotatePgn,
       }
     )
   }
@@ -368,6 +374,18 @@ export default function ModelPicker({
                     onChange={e => setSettings(s => ({ ...s, showLegalMoves: e.target.checked }))}
                   />
                   Include legal move list in prompt
+                </label>
+              </div>
+              <div className="settings-row settings-row-check">
+                <label className="settings-label settings-check-label" htmlFor="annotate-pgn">
+                  <input
+                    id="annotate-pgn"
+                    type="checkbox"
+                    className="settings-checkbox"
+                    checked={settings.annotatePgn}
+                    onChange={e => setSettings(s => ({ ...s, annotatePgn: e.target.checked }))}
+                  />
+                  Export annotated PGN (include model reasoning)
                 </label>
               </div>
             </div>

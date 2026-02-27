@@ -155,6 +155,7 @@ export default function App() {
         maxRetries: cfg.max_retries ?? 3,
         showLegalMoves: cfg.show_legal_moves ?? true,
         boardInput: cfg.board_input ?? 'text',
+        annotatePgn: cfg.annotate_pgn ?? false,
       }))
       .catch(() => {})
   }, [])
