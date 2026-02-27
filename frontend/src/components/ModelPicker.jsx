@@ -18,6 +18,7 @@ export default function ModelPicker({
     annotatePgn: false,
     maxOutputTokens: 5120,
     reasoningEffort: 'default',
+    startingFen: '',
   })
 
   // Copilot device-flow state
@@ -76,6 +77,7 @@ export default function ModelPicker({
         annotate_pgn: settings.annotatePgn,
         max_output_tokens: settings.maxOutputTokens,
         reasoning_effort: settings.reasoningEffort === 'default' ? null : settings.reasoningEffort,
+        starting_fen: settings.startingFen.trim() || null,
       }
     )
   }
@@ -415,6 +417,18 @@ export default function ModelPicker({
                   />
                   Export annotated PGN (include model reasoning)
                 </label>
+              </div>
+              <div className="settings-row settings-row-fen">
+                <label className="settings-label" htmlFor="starting-fen">Starting Position</label>
+                <input
+                  id="starting-fen"
+                  type="text"
+                  className="settings-fen"
+                  value={settings.startingFen}
+                  onChange={e => setSettings(s => ({ ...s, startingFen: e.target.value }))}
+                  placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+                  spellCheck={false}
+                />
               </div>
             </div>
           </div>

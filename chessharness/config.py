@@ -28,6 +28,7 @@ class GameConfig:
     move_timeout: int = 120   # seconds before a model response is abandoned
     save_pgn: bool = True
     pgn_dir: str = "./games"
+    starting_fen: str | None = None  # None = standard starting position
 
 
 @dataclass

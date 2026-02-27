@@ -31,6 +31,11 @@ function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBra
     error: '✕ Error',
   }[status] || ''
 
+  const handleStop = async () => {
+    if (!confirm('Stop all tournament games?')) return
+    await fetch('/api/tournament/stop', { method: 'POST' })
+  }
+
   return (
     <header className="game-header">
       <span className="tc-round-label">{roundLabel}</span>
@@ -42,6 +47,9 @@ function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBra
           </span>
         )}
         <button className="btn" onClick={onBracket}>Bracket</button>
+        {status === 'running' && (
+          <button className="btn btn-stop" onClick={handleStop}>■ Stop</button>
+        )}
         <button className="btn btn-back" onClick={() => navigate('/tournament/setup')}>
           ← New Tournament
         </button>

@@ -5,9 +5,9 @@ Prompt design:
   - Structured response format with ## Reasoning and ## Move sections.
     This gives models room to think before committing to a move, which
     dramatically reduces invalid/hallucinated responses compared to asking
-    for a bare UCI token.
+    for a bare move token.
   - Legal moves list included every turn — most effective anti-hallucination measure.
-  - Extraction parses the ## Move section first, falls back to UCI regex scan.
+  - Extraction parses the ## Move section first, falls back to SAN/UCI regex scan.
   - max_tokens=5120 to accommodate extended reasoning + move.
   - Temperature not set — each provider uses its own default.
 """
@@ -38,11 +38,11 @@ Respond in this exact format — two sections, nothing else:
 Think through the position: threats, tactics, your plan. Be concise.
 
 ## Move
-Your chosen move in UCI notation (e.g. e2e4, g1f3, e1g1, a7a8q)
+Your chosen move in SAN notation (e.g. e4, Nf3, cxd4, O-O, O-O-O, e8=Q)
 
 Rules for the ## Move section:
 - One move only, on its own line
-{legal_moves_rule}- Either SAN (e.g. e4, Nf3, cxd4, O-O, O-O-O, e8=Q) or UCI (e.g. e2e4, g1f3, e1g1, a7a8q) is accepted"""
+{legal_moves_rule}- Use SAN notation (e.g. e4, Nf3, cxd4, O-O, O-O-O, e8=Q)"""
 
 _USER_TEXT = """\
 Position (FEN): {fen}
@@ -116,21 +116,19 @@ class LLMPlayer(Player):
             )
 
         try:
-            async with asyncio.timeout(self._move_timeout):
-                raw = ""
-                async for chunk in self._provider.stream(
-                    messages,
-                    max_tokens=self._max_output_tokens,
-                    reasoning_effort=self._reasoning_effort,
-                ):
-                    raw += chunk
-                    if chunk_queue is not None:
-                        await chunk_queue.put(chunk)
-        except TimeoutError:
-            raise ProviderError(
-                self._provider.__class__.__name__,
-                f"No response within {self._move_timeout}s timeout.",
-            )
+            raw = await self._call_provider(messages, chunk_queue)
+        except ProviderError:
+            # If the call included an image, the model may not support vision
+            # even if the provider advertises it. Fall back to text board.
+            if any(m.image_bytes for m in messages):
+                logger.warning(
+                    "Vision call failed for %s — retrying with text board representation.",
+                    self.name,
+                )
+                messages = self._build_messages(state, force_text=True)
+                raw = await self._call_provider(messages, chunk_queue)
+            else:
+                raise
 
         if self._logger:
             self._logger.log_response(raw=raw)
@@ -150,10 +148,37 @@ class LLMPlayer(Player):
         return MoveResponse(raw=raw, move=move, reasoning=reasoning)
 
     # ------------------------------------------------------------------ #
+    # Provider call                                                        #
+    # ------------------------------------------------------------------ #
+
+    async def _call_provider(
+        self,
+        messages: list[Message],
+        chunk_queue: asyncio.Queue | None,
+    ) -> str:
+        try:
+            async with asyncio.timeout(self._move_timeout):
+                raw = ""
+                async for chunk in self._provider.stream(
+                    messages,
+                    max_tokens=self._max_output_tokens,
+                    reasoning_effort=self._reasoning_effort,
+                ):
+                    raw += chunk
+                    if chunk_queue is not None:
+                        await chunk_queue.put(chunk)
+                return raw
+        except TimeoutError:
+            raise ProviderError(
+                self._provider.__class__.__name__,
+                f"No response within {self._move_timeout}s timeout.",
+            )
+
+    # ------------------------------------------------------------------ #
     # Prompt construction                                                  #
     # ------------------------------------------------------------------ #
 
-    def _build_messages(self, state: GameState) -> list[Message]:
+    def _build_messages(self, state: GameState, force_text: bool = False) -> list[Message]:
         legal_moves_rule = (
             "- It MUST be from the legal moves list you are given\n"
             if self._show_legal_moves
@@ -186,7 +211,7 @@ class LLMPlayer(Player):
         )
 
         provider_supports_vision = self._provider.supports_vision
-        image_bytes = state.board_image_bytes if provider_supports_vision else None
+        image_bytes = state.board_image_bytes if provider_supports_vision and not force_text else None
         if state.board_image_bytes and not provider_supports_vision:
             logger.debug(
                 "Board image rendered but not attached because provider does not advertise vision support "

@@ -24,7 +24,8 @@ function downloadPGN(pgn, moves) {
   URL.revokeObjectURL(url)
 }
 
-export default function MoveHistory({ moves, plies, viewIndex, onNavigate, pgn }) {
+export default function MoveHistory({ moves, plies, viewIndex, onNavigate, pgn,
+  goToStart, goBack, goForward, goToLive, isLive, navLabel }) {
   const endRef = useRef(null)
 
   // Auto-scroll to bottom only when live (viewIndex === null)
@@ -35,16 +36,25 @@ export default function MoveHistory({ moves, plies, viewIndex, onNavigate, pgn }
   return (
     <div className="move-history">
       <div className="move-history-header">
-        <h3 className="panel-title">Move History</h3>
-        {moves.length > 0 && (
-          <button
-            className="export-pgn-btn"
-            onClick={() => downloadPGN(pgn, moves)}
-            title="Download PGN file"
-          >
-            Export PGN
-          </button>
-        )}
+        <div className="move-history-title-row">
+          <h3 className="panel-title">Move History</h3>
+          {moves.length > 0 && (
+            <button
+              className="export-pgn-btn"
+              onClick={() => downloadPGN(pgn, moves)}
+              title="Download PGN file"
+            >
+              Export PGN
+            </button>
+          )}
+        </div>
+        <div className="nav-controls">
+          <button className="nav-btn" onClick={goToStart} disabled={plies.length === 0 || viewIndex === 0} title="First move">⏮</button>
+          <button className="nav-btn" onClick={goBack}    disabled={plies.length === 0 || viewIndex === 0} title="Previous (←)">◀</button>
+          <span className={`nav-label ${isLive ? 'live' : ''}`}>{navLabel}</span>
+          <button className="nav-btn" onClick={goForward} disabled={isLive} title="Next (→)">▶</button>
+          <button className="nav-btn" onClick={goToLive}  disabled={isLive} title="Latest">⏭</button>
+        </div>
       </div>
       <div className="moves-list">
         {moves.length === 0 && <p className="moves-empty">Game starting…</p>}

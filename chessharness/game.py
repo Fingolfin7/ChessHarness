@@ -55,7 +55,7 @@ async def run_game(
     The generator completes when the game ends normally (checkmate, stalemate,
     draw, retries exhausted) or when stop_event is set (user interruption).
     """
-    board = ChessBoard()
+    board = ChessBoard(fen=config.game.starting_fen or None)
     board.set_players(white_player.name, black_player.name)
 
     use_images = config.game.board_input == "image" and is_png_available()
@@ -63,6 +63,7 @@ async def run_game(
     yield GameStartEvent(
         white_name=white_player.name,
         black_name=black_player.name,
+        starting_fen=board.fen,
     )
 
     while not board.is_game_over:

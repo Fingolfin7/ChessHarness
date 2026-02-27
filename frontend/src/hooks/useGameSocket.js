@@ -45,6 +45,7 @@ function applyEvent(state, event) {
       return {
         ...INITIAL_STATE,
         phase: 'playing',
+        fen: event.starting_fen || 'start',
         players: {
           white: { name: event.white_name },
           black: { name: event.black_name },

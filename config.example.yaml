@@ -42,11 +42,23 @@ providers:
   openai:
     api_key: "YOUR_OPENAI_KEY"
     models:
-      - id: gpt-4o
-        name: "GPT-4o"
+      - id: gpt-5.2
+        name: "GPT-5.2"
         supports_vision: true
-      - id: gpt-4o-mini
-        name: "GPT-4o Mini"
+      - id: gpt-5.1
+        name: "GPT-5.1"
+        supports_vision: true
+      - id: gpt-5
+        name: "GPT-5"
+        supports_vision: true
+      - id: gpt-5-mini
+        name: "GPT-5 mini"
+        supports_vision: true
+      - id: o3-2025-04-16
+        name: "o3"
+        supports_vision: true
+      - id: o4-mini-2025-04-16
+        name: "o4-mini"
         supports_vision: true
       - id: o3-mini
         name: "o3-mini"
@@ -69,13 +81,18 @@ providers:
   google:
     api_key: "YOUR_GOOGLE_KEY"
     models:
-      - id: gemini-2.0-flash
-        name: "Gemini 2.0 Flash"
+      - id: gemini-3.1-pro-preview
+        name: "Gemini 3.1 Pro (Preview)"
         supports_vision: true
-      - id: gemini-1.5-pro
-        name: "Gemini 1.5 Pro"
+      - id: gemini-3-pro-preview
+        name: "Gemini 3 Pro (Preview)"
         supports_vision: true
-
+      - id: gemini-3-flash-preview
+        name: "Gemini 3 Flash (Preview)"
+        supports_vision: true
+      - id: gemini-2.5-flash
+        name: "Gemini 2.5 Flash"
+        supports_vision: true
   kimi:
     api_key: "YOUR_KIMI_KEY"
     base_url: "https://api.moonshot.cn/v1"
@@ -92,64 +109,40 @@ providers:
     models:
       - id: "claude-haiku-4.5"
         name: "claude-haiku-4.5"
+        supports_vision: true
       - id: "claude-opus-4.5"
         name: "claude-opus-4.5"
+        supports_vision: true
       - id: "claude-opus-4.6"
         name: "claude-opus-4.6"
+        supports_vision: false
       - id: "claude-sonnet-4.5"
         name: "claude-sonnet-4.5"
+        supports_vision: true
       - id: "claude-sonnet-4.6"
         name: "claude-sonnet-4.6"
+        supports_vision: true
       - id: "gemini-2.5-pro"
         name: "gemini-2.5-pro"
-      - id: "gpt-3.5-turbo"
-        name: "gpt-3.5-turbo"
-      - id: "gpt-3.5-turbo-0613"
-        name: "gpt-3.5-turbo-0613"
-      - id: "gpt-4"
-        name: "gpt-4"
-      - id: "gpt-4-0125-preview"
-        name: "gpt-4-0125-preview"
-      - id: "gpt-4-0613"
-        name: "gpt-4-0613"
-      - id: "gpt-4-o-preview"
-        name: "gpt-4-o-preview"
-      - id: "gpt-4.1"
-        name: "gpt-4.1"
-      - id: "gpt-4.1-2025-04-14"
-        name: "gpt-4.1-2025-04-14"
-      - id: "gpt-4o"
-        name: "gpt-4o"
-      - id: "gpt-4o-2024-05-13"
-        name: "gpt-4o-2024-05-13"
-      - id: "gpt-4o-2024-08-06"
-        name: "gpt-4o-2024-08-06"
-      - id: "gpt-4o-2024-11-20"
-        name: "gpt-4o-2024-11-20"
-      - id: "gpt-4o-mini"
-        name: "gpt-4o-mini"
-      - id: "gpt-4o-mini-2024-07-18"
-        name: "gpt-4o-mini-2024-07-18"
+        supports_vision: true
       - id: "gpt-5-mini"
         name: "gpt-5-mini"
+        supports_vision: true
       - id: "gpt-5.1-codex"
         name: "gpt-5.1-codex"
+        supports_vision: true
       - id: "gpt-5.1-codex-max"
         name: "gpt-5.1-codex-max"
+        supports_vision: true
       - id: "gpt-5.2"
         name: "gpt-5.2"
+        supports_vision: true
       - id: "gpt-5.2-codex"
         name: "gpt-5.2-codex"
-      - id: "gpt-5.3-codex"
-        name: "gpt-5.3-codex"
+        supports_vision: true
       - id: "grok-code-fast-1"
         name: "grok-code-fast-1"
-  groq:
-    api_key: "YOUR_GROQ_KEY"
-    base_url: "https://api.groq.com/openai/v1"
-    models:
-      - id: llama-3.3-70b-versatile
-        name: "Groq Llama 3.3 70B"
+        supports_vision: false
 
   # OpenRouter (OpenAI-compatible API)
   openrouter:

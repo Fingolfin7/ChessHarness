@@ -18,6 +18,7 @@
   --header-h:     48px;
   --reasoning-h:  200px;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: clamp(12px, 0.8vw + 7px, 17px);
 }
 
 html, body, #root {
@@ -84,7 +85,7 @@ html, body, #root {
 
 .app-content {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   position: relative;
 }
 
@@ -204,6 +205,7 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 .game-header {
@@ -231,8 +233,9 @@ html, body, #root {
   transition: border-color 0.15s, color 0.15s;
 }
 
-.btn-stop:hover { border-color: var(--error);   color: var(--error);   }
-.btn-new:hover  { border-color: var(--dark-sq); color: var(--dark-sq); }
+.btn-stop:hover    { border-color: var(--error);   color: var(--error);   }
+.btn-new:hover     { border-color: var(--dark-sq); color: var(--dark-sq); }
+.btn-rematch:hover { border-color: var(--dark-sq); color: var(--dark-sq); }
 
 .result-banner {
   background: rgba(92, 184, 92, 0.12);
@@ -292,8 +295,6 @@ html, body, #root {
   align-items: center;
   gap: 0.4rem;
   width: 100%;
-  max-width: calc(100vh - var(--header-h) - var(--reasoning-h) - 6rem);
-  justify-content: center;
 }
 
 .nav-btn {
@@ -364,7 +365,7 @@ html, body, #root {
 }
 
 .player-color-label { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
-.player-status { font-size: 0.9rem; min-height: 1.2em; text-align: right; flex-shrink: 0; }
+.player-status { font-size: 0.9rem; min-height: 1.2em; text-align: right; min-width: 0; overflow: hidden; flex: 0 1 auto; max-width: 55%; }
 
 .thinking-indicator { display: flex; align-items: center; gap: 0.45rem; color: var(--thinking); }
 
@@ -382,8 +383,8 @@ html, body, #root {
 }
 
 .last-move-san { font-family: 'Consolas', monospace; font-size: 1rem; font-weight: 600; color: var(--dark-sq); }
-.invalid-badge  { color: var(--error); font-size: 0.82rem; display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
-.invalid-error  { font-size: 0.72rem; opacity: 0.85; font-family: 'Consolas', monospace; white-space: pre-wrap; word-break: break-all; max-height: 60px; overflow-y: auto; text-align: right; }
+.invalid-badge  { color: var(--error); font-size: 0.82rem; display: flex; flex-direction: column; gap: 2px; align-items: flex-end; max-width: 100%; overflow: hidden; }
+.invalid-error  { font-size: 0.72rem; opacity: 0.85; font-family: 'Consolas', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 /* ── Move history ───────────────────────────────────────────────────────── */
 .move-history {
@@ -399,10 +400,16 @@ html, body, #root {
 
 .move-history-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.4rem;
   margin-bottom: 0.5rem;
   flex-shrink: 0;
+}
+
+.move-history-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .export-pgn-btn {
@@ -752,7 +759,7 @@ html, body, #root {
 }
 
 .settings-number {
-  width: 70px;
+  width: 100px;
   background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -788,6 +795,21 @@ html, body, #root {
   cursor: pointer;
   flex-shrink: 0;
 }
+
+.settings-row-fen { flex-direction: column; align-items: flex-start; gap: 0.35rem; }
+
+.settings-fen {
+  width: 100%;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  font-family: 'Consolas', monospace;
+}
+.settings-fen::placeholder { color: var(--text-dim); opacity: 0.6; }
+.settings-fen:focus { outline: none; border-color: var(--dark-sq); }
 
 /* ── Tournament entry link (on setup screen) ─────────────────────────────── */
 
@@ -962,6 +984,11 @@ html, body, #root {
 .ts-settings-row--check {
   justify-content: flex-start;
 }
+.ts-settings-row--fen {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
 .ts-settings-label {
   font-size: 0.88rem;
   color: var(--text-dim);
@@ -1122,6 +1149,7 @@ html, body, #root {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 /* 2/3 + 1/3 body split */

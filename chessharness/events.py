@@ -30,6 +30,7 @@ GameOverReason = Literal[
 class GameStartEvent:
     white_name: str
     black_name: str
+    starting_fen: str = "start"
     timestamp: datetime = field(default_factory=datetime.now)
 
 

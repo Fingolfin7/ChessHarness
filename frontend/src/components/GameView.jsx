@@ -11,13 +11,14 @@ function resultText(result) {
   return `Draw — ${result.reason.replace(/_/g, ' ')}`
 }
 
-export default function GameView({ state, onStop, onNewGame }) {
+export default function GameView({ state, onStop, onNewGame, onRematch }) {
   const { players, fen, lastMove, turn, thinking, reasoning, moves,
           plies, invalidAttempt, result, error, phase } = state
   const isOver = phase === 'over'
 
   // null = live; 0..plies.length-1 = reviewing that ply
   const [viewIndex, setViewIndex] = useState(null)
+  const [flipped, setFlipped] = useState(false)
 
   // Snap back to live when a new move arrives during live view
   useEffect(() => {
@@ -88,7 +89,9 @@ export default function GameView({ state, onStop, onNewGame }) {
       {/* ── Header ── */}
       <header className="game-header">
         <div className="header-controls">
+          <button className="btn" onClick={() => setFlipped(f => !f)} title="Flip board">⇅ Flip</button>
           {!isOver && <button className="btn btn-stop" onClick={onStop}>Stop Game</button>}
+          {isOver  && <button className="btn btn-rematch" onClick={onRematch}>↺ Rematch</button>}
           {isOver  && <button className="btn btn-new"  onClick={onNewGame}>New Game</button>}
         </div>
       </header>
@@ -103,17 +106,9 @@ export default function GameView({ state, onStop, onNewGame }) {
       {/* ── Main ── */}
       <div className="game-main">
 
-        {/* Board + nav controls */}
+        {/* Board */}
         <div className="board-col">
-          <Board fen={displayFen} lastMove={displayLastMove} />
-
-          <div className="nav-controls">
-            <button className="nav-btn" onClick={goToStart}  disabled={plies.length === 0 || viewIndex === 0} title="First move">⏮</button>
-            <button className="nav-btn" onClick={goBack}     disabled={plies.length === 0 || viewIndex === 0} title="Previous (←)">◀</button>
-            <span className={`nav-label ${isLive ? 'live' : ''}`}>{navLabel}</span>
-            <button className="nav-btn" onClick={goForward}  disabled={isLive} title="Next (→)">▶</button>
-            <button className="nav-btn" onClick={goToLive}   disabled={isLive} title="Latest">⏭</button>
-          </div>
+          <Board fen={displayFen} lastMove={displayLastMove} flipped={flipped} />
         </div>
 
         {/* Sidebar — Black on top, history in middle, White on bottom (Lichess-style) */}
@@ -133,6 +128,12 @@ export default function GameView({ state, onStop, onNewGame }) {
             viewIndex={viewIndex}
             onNavigate={goToPly}
             pgn={result?.pgn}
+            goToStart={goToStart}
+            goBack={goBack}
+            goForward={goForward}
+            goToLive={goToLive}
+            isLive={isLive}
+            navLabel={navLabel}
           />
 
           <PlayerPanel

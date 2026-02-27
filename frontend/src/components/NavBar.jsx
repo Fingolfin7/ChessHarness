@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom'
 export default function NavBar() {
   return (
     <nav className="app-nav">
-      <NavLink to="/game" className="app-nav-logo" title="Home">
+      <NavLink to="/" className="app-nav-logo" title="Home">
         ♔ ChessHarness
       </NavLink>
       <div className="app-nav-links">

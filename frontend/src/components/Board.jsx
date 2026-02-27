@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { Chessboard } from 'react-chessboard'
 
-export default function Board({ fen, lastMove }) {
+export default function Board({ fen, lastMove, flipped = false }) {
   const wrapperRef = useRef(null)
   const [boardWidth, setBoardWidth] = useState(500)
 
@@ -29,6 +29,7 @@ export default function Board({ fen, lastMove }) {
       <Chessboard
         position={fen}
         boardWidth={boardWidth}
+        boardOrientation={flipped ? 'black' : 'white'}
         arePiecesDraggable={false}
         customSquareStyles={squareStyles}
         customDarkSquareStyle={{ backgroundColor: '#b58863' }}

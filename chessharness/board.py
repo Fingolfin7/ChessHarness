@@ -18,9 +18,12 @@ from chessharness.events import Color, GameResult
 class ChessBoard:
     """Facade over chess.Board + chess.pgn.Game."""
 
-    def __init__(self) -> None:
-        self._board = chess.Board()
+    def __init__(self, fen: str | None = None) -> None:
+        self._starting_fen = fen
+        self._board = chess.Board(fen) if fen else chess.Board()
         self._game = chess.pgn.Game()
+        if fen:
+            self._game.setup(self._board)
         self._node: chess.pgn.GameNode = self._game
         self._game.headers["Date"] = datetime.now().strftime("%Y.%m.%d")
         self._game.headers["Event"] = "LLM Chess Harness"
@@ -57,7 +60,7 @@ class ChessBoard:
 
     def move_history_san(self) -> list[str]:
         """All moves played so far in SAN notation (replays from start)."""
-        board_copy = chess.Board()
+        board_copy = chess.Board(self._starting_fen) if self._starting_fen else chess.Board()
         san_moves: list[str] = []
         for move in self._board.move_stack:
             san_moves.append(board_copy.san(move))

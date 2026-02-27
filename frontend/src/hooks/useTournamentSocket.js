@@ -63,7 +63,7 @@ function applyMatchGameEvent(match, gameEvent) {
         status: 'live',
         whiteName: gameEvent.white_name,
         blackName: gameEvent.black_name,
-        fen: 'start',
+        fen: gameEvent.starting_fen || 'start',
         lastMove: null,
         plies: [],
         moves: [],

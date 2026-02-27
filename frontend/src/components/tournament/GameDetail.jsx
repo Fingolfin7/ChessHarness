@@ -27,6 +27,7 @@ export default function GameDetail({ matchId, matchInfo, onBack }) {
 
   const isOver = phase === 'over'
   const [viewIndex, setViewIndex] = useState(null)
+  const [flipped, setFlipped] = useState(false)
 
   // Auto-follow live unless user is reviewing
   useEffect(() => {
@@ -95,6 +96,7 @@ export default function GameDetail({ matchId, matchInfo, onBack }) {
               ↻ {connStatus === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
             </span>
           )}
+          <button className="btn" onClick={() => setFlipped(f => !f)} title="Flip board">⇅ Flip</button>
         </div>
       </header>
 
@@ -107,14 +109,7 @@ export default function GameDetail({ matchId, matchInfo, onBack }) {
 
       <div className="game-main">
         <div className="board-col">
-          <Board fen={displayFen} lastMove={displayLastMove} />
-          <div className="nav-controls">
-            <button className="nav-btn" onClick={goToStart} disabled={plies.length === 0 || viewIndex === 0} title="First">⏮</button>
-            <button className="nav-btn" onClick={goBack}    disabled={plies.length === 0 || viewIndex === 0} title="Prev (←)">◀</button>
-            <span className={`nav-label ${isLive ? 'live' : ''}`}>{navLabel}</span>
-            <button className="nav-btn" onClick={goForward} disabled={isLive} title="Next (→)">▶</button>
-            <button className="nav-btn" onClick={goToLive}  disabled={isLive} title="Latest">⏭</button>
-          </div>
+          <Board fen={displayFen} lastMove={displayLastMove} flipped={flipped} />
         </div>
 
         <div className="sidebar">
@@ -132,6 +127,12 @@ export default function GameDetail({ matchId, matchInfo, onBack }) {
             viewIndex={viewIndex}
             onNavigate={goToPly}
             pgn={result?.pgn}
+            goToStart={goToStart}
+            goBack={goBack}
+            goForward={goForward}
+            goToLive={goToLive}
+            isLive={isLive}
+            navLabel={navLabel}
           />
           <PlayerPanel
             color="white"

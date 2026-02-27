@@ -47,6 +47,7 @@ function applyEvent(state, event) {
     case 'GameStartEvent':
       return {
         ...freshGameState(),
+        fen: event.starting_fen || 'start',
         players: {
           white: { name: event.white_name },
           black: { name: event.black_name },
@@ -148,8 +149,10 @@ export default function GamePage() {
   const [state, setState] = useState(INITIAL_STATE)
   const wsRef = useRef(null)
   const sessionRef = useRef(0)
+  const lastGameRef = useRef(null)  // { white, black, settings } for rematch
 
   const startGame = useCallback((white, black, settings) => {
+    lastGameRef.current = { white, black, settings }
     if (wsRef.current && wsRef.current.readyState <= 1) {
       wsRef.current.close()
     }
@@ -186,6 +189,12 @@ export default function GamePage() {
     setState(INITIAL_STATE)
   }, [])
 
+  const rematch = useCallback(() => {
+    if (!lastGameRef.current) return
+    const { white, black, settings } = lastGameRef.current
+    startGame(black, white, settings)  // swap colours
+  }, [startGame])
+
   if (state.phase === 'setup') {
     return (
       <ModelPicker
@@ -204,5 +213,5 @@ export default function GamePage() {
     )
   }
 
-  return <GameView state={state} onStop={stopGame} onNewGame={newGame} />
+  return <GameView state={state} onStop={stopGame} onNewGame={newGame} onRematch={rematch} />
 }

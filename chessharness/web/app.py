@@ -716,6 +716,14 @@ class _TournamentBroadcaster:
     def collected_pgns(self) -> list[str]:
         return list(self._pgns)
 
+    def stop(self) -> bool:
+        """Cancel the running tournament task. Returns True if there was something to cancel."""
+        if self._task and not self._task.done():
+            self._task.cancel()
+            self.status = {"state": "idle"}
+            return True
+        return False
+
     async def _run(self, participants, config, player_factory, tournament) -> None:
         try:
             async for event in tournament.run(participants, config, player_factory):
@@ -779,6 +787,13 @@ def tournament_pgn():
         content,
         headers={"Content-Disposition": 'attachment; filename="tournament.pgn"'},
     )
+
+
+@app.post("/api/tournament/stop")
+async def tournament_stop():
+    """Stop the running tournament immediately."""
+    stopped = _tournament_broadcaster.stop()
+    return {"ok": True, "was_running": stopped}
 
 
 @app.post("/api/tournament/start")
@@ -846,6 +861,9 @@ async def tournament_start(payload: dict):
                 overrides["reasoning_effort"] = (
                     effort if effort in ("low", "medium", "high") else None
                 )
+        if "starting_fen" in ui_settings:
+            fen = (ui_settings["starting_fen"] or "").strip()
+            overrides["starting_fen"] = fen if fen else None
         if overrides:
             game_cfg = replace(game_cfg, **overrides)
     tournament_config = replace(config, game=game_cfg)
@@ -953,6 +971,9 @@ async def game_ws(ws: WebSocket) -> None:
                     overrides["reasoning_effort"] = (
                         effort if effort in ("low", "medium", "high") else None
                     )
+            if "starting_fen" in ui_settings:
+                fen = (ui_settings["starting_fen"] or "").strip()
+                overrides["starting_fen"] = fen if fen else None
             if overrides:
                 game_cfg = replace(game_cfg, **overrides)
         session_config = replace(config, game=game_cfg)
