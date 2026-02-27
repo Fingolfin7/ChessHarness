@@ -52,7 +52,7 @@ Seed up to 16 models into a knockout bracket, choose draw-handling rules, and la
 
 ```bash
 cp config.example.yaml config.yaml   # add your API keys
-uv run python web_main.py            # backend on :8000
+uv run web_main.py                   # backend on :8000
 cd frontend && npm run dev           # Vite dev server on :5173
 ```
 
