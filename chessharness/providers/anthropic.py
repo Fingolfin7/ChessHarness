@@ -46,6 +46,7 @@ class AnthropicProvider(LLMProvider):
         messages: list[Message],
         *,
         max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
     ) -> str:
         try:
             system_content = next(
@@ -70,6 +71,7 @@ class AnthropicProvider(LLMProvider):
         messages: list[Message],
         *,
         max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
     ):
         try:
             system_content = next(

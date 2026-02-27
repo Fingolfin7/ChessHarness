@@ -11,17 +11,34 @@ class _FakeProvider(LLMProvider):
         self._supports_vision = supports_vision
         self._chunks = chunks
         self.last_messages: list[Message] | None = None
+        self.last_stream_kwargs: dict | None = None
 
     @property
     def supports_vision(self) -> bool:
         return self._supports_vision
 
-    async def complete(self, messages: list[Message], *, max_tokens: int = 5120) -> str:
+    async def complete(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
+    ) -> str:
         self.last_messages = messages
         return "".join(self._chunks)
 
-    async def stream(self, messages: list[Message], *, max_tokens: int = 5120):
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
+    ):
         self.last_messages = messages
+        self.last_stream_kwargs = {
+            "max_tokens": max_tokens,
+            "reasoning_effort": reasoning_effort,
+        }
         for c in self._chunks:
             yield c
 
@@ -61,6 +78,22 @@ class LLMPlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("".join(chunks), response.raw)
         self.assertEqual(response.move, "e2e4")
         self.assertIn("Good line", response.reasoning)
+        self.assertEqual(provider.last_stream_kwargs, {"max_tokens": 5120, "reasoning_effort": None})
+
+    async def test_streaming_applies_token_budget_and_reasoning_effort(self) -> None:
+        provider = _FakeProvider(
+            supports_vision=True,
+            chunks=["## Reasoning\nx\n\n## Move\ne2e4\n"],
+        )
+        player = LLMPlayer(
+            name="P",
+            provider=provider,
+            max_output_tokens=2048,
+            reasoning_effort="high",
+        )
+
+        await player.get_move(_state())
+        self.assertEqual(provider.last_stream_kwargs, {"max_tokens": 2048, "reasoning_effort": "high"})
 
     async def test_history_is_carried_between_turns(self) -> None:
         provider = _FakeProvider(
@@ -98,4 +131,3 @@ class LLMPlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(user.image_bytes)
         self.assertIn("Position (FEN)", user.content)
         self.assertIn("ASCII-BOARD", user.content)
-

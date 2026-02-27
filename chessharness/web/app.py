@@ -369,6 +369,8 @@ def get_config():
         "show_legal_moves": config.game.show_legal_moves,
         "board_input": config.game.board_input,
         "annotate_pgn": config.game.annotate_pgn,
+        "max_output_tokens": config.game.max_output_tokens,
+        "reasoning_effort": config.game.reasoning_effort,
     }
 
 
@@ -638,6 +640,14 @@ async def game_ws(ws: WebSocket) -> None:
                 overrides["board_input"] = ui_settings["board_input"]
             if "annotate_pgn" in ui_settings:
                 overrides["annotate_pgn"] = bool(ui_settings["annotate_pgn"])
+            if "max_output_tokens" in ui_settings:
+                overrides["max_output_tokens"] = max(1, int(ui_settings["max_output_tokens"]))
+            if "reasoning_effort" in ui_settings:
+                effort = ui_settings["reasoning_effort"]
+                if effort in ("low", "medium", "high", None, "", "default", "auto", "none"):
+                    overrides["reasoning_effort"] = (
+                        effort if effort in ("low", "medium", "high") else None
+                    )
             if overrides:
                 game_cfg = replace(game_cfg, **overrides)
         session_config = replace(config, game=game_cfg)
@@ -659,10 +669,22 @@ async def game_ws(ws: WebSocket) -> None:
         )
 
         white_player = create_player(
-            w["provider"], w["name"], white_provider, session_config.game.show_legal_moves, session_config.game.move_timeout
+            w["provider"],
+            w["name"],
+            white_provider,
+            session_config.game.show_legal_moves,
+            session_config.game.move_timeout,
+            session_config.game.max_output_tokens,
+            session_config.game.reasoning_effort,
         )
         black_player = create_player(
-            b["provider"], b["name"], black_provider, session_config.game.show_legal_moves, session_config.game.move_timeout
+            b["provider"],
+            b["name"],
+            black_provider,
+            session_config.game.show_legal_moves,
+            session_config.game.move_timeout,
+            session_config.game.max_output_tokens,
+            session_config.game.reasoning_effort,
         )
 
         # Attach per-player loggers

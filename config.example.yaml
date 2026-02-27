@@ -26,6 +26,13 @@ game:
   # false — export plain PGN without reasoning comments
   annotate_pgn: false
 
+  # Output token budget per model response.
+  max_output_tokens: 5120
+
+  # Optional reasoning effort hint for models that support it.
+  # Allowed: low | medium | high | null
+  reasoning_effort: null
+
   save_pgn: true
   pgn_dir: "./games"
 

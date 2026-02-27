@@ -88,12 +88,16 @@ class LLMPlayer(Player):
         logger: ConversationLogger | None = None,
         show_legal_moves: bool = True,
         move_timeout: int = 120,
+        max_output_tokens: int = 5120,
+        reasoning_effort: str | None = None,
     ) -> None:
         super().__init__(name)
         self._provider = provider
         self._logger = logger
         self._show_legal_moves = show_legal_moves
         self._move_timeout = move_timeout
+        self._max_output_tokens = max_output_tokens
+        self._reasoning_effort = reasoning_effort
         self._history: list[Message] = []  # grows as [user, assistant, user, assistant, ...]
 
     async def get_move(
@@ -114,7 +118,11 @@ class LLMPlayer(Player):
         try:
             async with asyncio.timeout(self._move_timeout):
                 raw = ""
-                async for chunk in self._provider.stream(messages):
+                async for chunk in self._provider.stream(
+                    messages,
+                    max_tokens=self._max_output_tokens,
+                    reasoning_effort=self._reasoning_effort,
+                ):
                     raw += chunk
                     if chunk_queue is not None:
                         await chunk_queue.put(chunk)

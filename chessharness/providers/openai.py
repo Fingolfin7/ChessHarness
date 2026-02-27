@@ -46,6 +46,10 @@ def _is_reasoning_model(model: str) -> bool:
     return any(model.startswith(p) for p in _REASONING_PREFIXES)
 
 
+def _supports_reasoning_effort(model: str) -> bool:
+    return _is_reasoning_model(model) or model.startswith("gpt-5")
+
+
 class OpenAIProvider(LLMProvider):
     """
     Supports all OpenAI chat models and OpenAI-compatible endpoints.
@@ -84,13 +88,18 @@ class OpenAIProvider(LLMProvider):
         messages: list[Message],
         *,
         max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
     ) -> str:
         try:
             api_messages = self._build_api_messages(messages)
+            request_kwargs: dict = {}
+            if reasoning_effort and _supports_reasoning_effort(self._model):
+                request_kwargs["reasoning_effort"] = reasoning_effort
             response = await self._client.chat.completions.create(
                 model=self._model,
                 messages=api_messages,  # type: ignore[arg-type]
                 max_completion_tokens=max_tokens,
+                **request_kwargs,
             )
             return (response.choices[0].message.content or "").strip()
         except Exception as exc:
@@ -103,14 +112,19 @@ class OpenAIProvider(LLMProvider):
         messages: list[Message],
         *,
         max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
     ):
         try:
             api_messages = self._build_api_messages(messages)
+            request_kwargs: dict = {}
+            if reasoning_effort and _supports_reasoning_effort(self._model):
+                request_kwargs["reasoning_effort"] = reasoning_effort
             async with await self._client.chat.completions.create(
                 model=self._model,
                 messages=api_messages,  # type: ignore[arg-type]
                 max_completion_tokens=max_tokens,
                 stream=True,
+                **request_kwargs,
             ) as stream:
                 async for chunk in stream:
                     if not chunk.choices:

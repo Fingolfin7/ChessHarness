@@ -17,6 +17,13 @@ const INITIAL_STATE = {
   error: null,
 }
 
+function freshGameState() {
+  return {
+    ...INITIAL_STATE,
+    phase: 'playing',
+  }
+}
+
 function updateMoves(moves, event) {
   const { color, move_san, reasoning, move_number } = event
   const entry = { san: move_san, reasoning }
@@ -33,8 +40,7 @@ function applyEvent(state, event) {
   switch (event.type) {
     case 'GameStartEvent':
       return {
-        ...state,
-        phase: 'playing',
+        ...freshGameState(),
         players: {
           white: { name: event.white_name },
           black: { name: event.black_name },
@@ -132,6 +138,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false)
   const [defaultSettings, setDefaultSettings] = useState(null)
   const wsRef = useRef(null)
+  const sessionRef = useRef(0)
 
   useEffect(() => {
     fetch('/api/models')
@@ -156,20 +163,38 @@ export default function App() {
         showLegalMoves: cfg.show_legal_moves ?? true,
         boardInput: cfg.board_input ?? 'text',
         annotatePgn: cfg.annotate_pgn ?? false,
+        maxOutputTokens: cfg.max_output_tokens ?? 5120,
+        reasoningEffort: cfg.reasoning_effort ?? 'default',
       }))
       .catch(() => {})
   }, [])
 
   const startGame = useCallback((white, black, settings) => {
+    // Ensure only one active game socket can publish events into state.
+    if (wsRef.current && wsRef.current.readyState <= 1) {
+      wsRef.current.close()
+    }
+
+    sessionRef.current += 1
+    const thisSession = sessionRef.current
     setState(s => ({ ...s, error: null }))
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${location.host}/ws/game`)
     wsRef.current = ws
 
     ws.onopen = () => ws.send(JSON.stringify({ type: 'start', white, black, settings }))
-    ws.onmessage = (e) => setState(s => applyEvent(s, JSON.parse(e.data)))
-    ws.onerror = () => setState(s => ({ ...s, error: 'WebSocket connection error.', thinking: false }))
-    ws.onclose = () => setState(s => s.phase === 'playing' ? { ...s, phase: 'over' } : s)
+    ws.onmessage = (e) => {
+      if (sessionRef.current !== thisSession || wsRef.current !== ws) return
+      setState(s => applyEvent(s, JSON.parse(e.data)))
+    }
+    ws.onerror = () => {
+      if (sessionRef.current !== thisSession || wsRef.current !== ws) return
+      setState(s => ({ ...s, error: 'WebSocket connection error.', thinking: false }))
+    }
+    ws.onclose = () => {
+      if (sessionRef.current !== thisSession || wsRef.current !== ws) return
+      setState(s => s.phase === 'playing' ? { ...s, phase: 'over' } : s)
+    }
   }, [])
 
   const stopGame = useCallback(() => {
@@ -177,6 +202,7 @@ export default function App() {
   }, [])
 
   const newGame = useCallback(() => {
+    sessionRef.current += 1
     wsRef.current?.close()
     wsRef.current = null
     setState(INITIAL_STATE)

@@ -15,6 +15,8 @@ export default function ModelPicker({
     showLegalMoves: true,
     boardInput: 'text',
     annotatePgn: false,
+    maxOutputTokens: 5120,
+    reasoningEffort: 'default',
   })
 
   // Copilot device-flow state
@@ -71,6 +73,8 @@ export default function ModelPicker({
         show_legal_moves: settings.showLegalMoves,
         board_input: settings.boardInput,
         annotate_pgn: settings.annotatePgn,
+        max_output_tokens: settings.maxOutputTokens,
+        reasoning_effort: settings.reasoningEffort === 'default' ? null : settings.reasoningEffort,
       }
     )
   }
@@ -362,6 +366,37 @@ export default function ModelPicker({
                 >
                   <option value="text">Text (FEN + moves)</option>
                   <option value="image">Image (board screenshot)</option>
+                </select>
+              </div>
+              <div className="settings-row">
+                <label className="settings-label" htmlFor="max-output-tokens">Max Output Tokens</label>
+                <input
+                  id="max-output-tokens"
+                  type="number"
+                  min="64"
+                  max="32768"
+                  className="settings-number"
+                  value={settings.maxOutputTokens}
+                  onChange={e =>
+                    setSettings(s => ({
+                      ...s,
+                      maxOutputTokens: Math.max(1, parseInt(e.target.value, 10) || 1),
+                    }))
+                  }
+                />
+              </div>
+              <div className="settings-row">
+                <label className="settings-label" htmlFor="reasoning-effort">Reasoning Effort</label>
+                <select
+                  id="reasoning-effort"
+                  className="settings-select"
+                  value={settings.reasoningEffort}
+                  onChange={e => setSettings(s => ({ ...s, reasoningEffort: e.target.value }))}
+                >
+                  <option value="default">Default</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
                 </select>
               </div>
               <div className="settings-row settings-row-check">

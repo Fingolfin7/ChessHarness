@@ -51,8 +51,24 @@ async def _main(stop_event: asyncio.Event) -> None:
     )
 
     # Build players
-    white_player = create_player(white_sel.provider_name, white_sel.display_name, white_provider, config.game.show_legal_moves, config.game.move_timeout)
-    black_player = create_player(black_sel.provider_name, black_sel.display_name, black_provider, config.game.show_legal_moves, config.game.move_timeout)
+    white_player = create_player(
+        white_sel.provider_name,
+        white_sel.display_name,
+        white_provider,
+        config.game.show_legal_moves,
+        config.game.move_timeout,
+        config.game.max_output_tokens,
+        config.game.reasoning_effort,
+    )
+    black_player = create_player(
+        black_sel.provider_name,
+        black_sel.display_name,
+        black_provider,
+        config.game.show_legal_moves,
+        config.game.move_timeout,
+        config.game.max_output_tokens,
+        config.game.reasoning_effort,
+    )
 
     # Attach per-player conversation loggers (shared game_id keeps filenames paired)
     log_dir = Path("./logs")

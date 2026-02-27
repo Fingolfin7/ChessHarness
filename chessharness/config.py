@@ -14,6 +14,7 @@ from typing import Literal
 import yaml
 
 BoardInputMode = Literal["text", "image"]
+ReasoningEffort = Literal["low", "medium", "high"]
 
 
 @dataclass
@@ -22,6 +23,8 @@ class GameConfig:
     board_input: BoardInputMode = "text"
     show_legal_moves: bool = True
     annotate_pgn: bool = False
+    max_output_tokens: int = 5120
+    reasoning_effort: ReasoningEffort | None = None
     move_timeout: int = 120   # seconds before a model response is abandoned
     save_pgn: bool = True
     pgn_dir: str = "./games"
@@ -90,6 +93,8 @@ def load_config(path: str | Path = "config.yaml") -> Config:
             board_input=game_raw.get("board_input", "text"),
             show_legal_moves=bool(game_raw.get("show_legal_moves", True)),
             annotate_pgn=bool(game_raw.get("annotate_pgn", False)),
+            max_output_tokens=int(game_raw.get("max_output_tokens", 5120)),
+            reasoning_effort=_parse_reasoning_effort(game_raw.get("reasoning_effort")),
             move_timeout=int(game_raw.get("move_timeout", 120)),
             save_pgn=bool(game_raw.get("save_pgn", True)),
             pgn_dir=game_raw.get("pgn_dir", "./games"),
@@ -130,6 +135,8 @@ def _validate(config: Config) -> None:
         )
     if config.game.max_retries < 1:
         raise ValueError("game.max_retries must be >= 1")
+    if config.game.max_output_tokens < 1:
+        raise ValueError("game.max_output_tokens must be >= 1")
     # Providers and their model lists are now optional in config.yaml.
     # Connections and model discovery are handled at runtime via the web UI.
 
@@ -141,4 +148,18 @@ def _parse_supports_vision(value: object) -> bool | None:
         return value
     raise ValueError(
         f"model.supports_vision must be true/false when provided, got {value!r}"
+    )
+
+
+def _parse_reasoning_effort(value: object) -> ReasoningEffort | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if not text or text in {"none", "default", "auto"}:
+            return None
+        if text in {"low", "medium", "high"}:
+            return text  # type: ignore[return-value]
+    raise ValueError(
+        f"game.reasoning_effort must be one of low/medium/high/null, got {value!r}"
     )

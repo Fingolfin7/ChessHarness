@@ -33,6 +33,7 @@ class LLMProvider(ABC):
         messages: list[Message],
         *,
         max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
     ) -> str:
         """
         Send messages to the LLM and return the raw text response.
@@ -53,6 +54,7 @@ class LLMProvider(ABC):
         messages: list[Message],
         *,
         max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
     ) -> AsyncIterator[str]:
         """
         Yield raw text tokens as the model produces them.
