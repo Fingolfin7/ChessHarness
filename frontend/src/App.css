@@ -726,3 +726,272 @@ html, body, #root {
   cursor: pointer;
   flex-shrink: 0;
 }
+
+/* ── Tournament broadcast UI ─────────────────────────────────────────────── */
+
+.tc-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.tc-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.tc-round-label {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  margin: 0 1rem;
+}
+
+.tc-status-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 99px;
+  margin-right: 0.5rem;
+}
+.tc-status-running  { color: #4caf50; border: 1px solid #4caf5066; }
+.tc-status-complete { color: var(--text-dim); border: 1px solid var(--border); }
+.tc-status-idle     { color: var(--text-dim); }
+.tc-status-error    { color: var(--error); border: 1px solid #e05c5c66; }
+
+.tc-idle-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  gap: 0.5rem;
+  color: var(--text-dim);
+}
+
+/* ── GameGrid ───────────────────────────────────────────────────────────── */
+
+.tc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.tc-grid-empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 3rem;
+}
+
+/* ── GameCard ────────────────────────────────────────────────────────────── */
+
+.tc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.tc-card:hover  { border-color: var(--dark-sq); box-shadow: 0 0 0 1px var(--dark-sq); }
+.tc-card:focus  { outline: 2px solid var(--dark-sq); outline-offset: 2px; }
+.tc-card--live  { border-color: #4caf5066; }
+.tc-card--done  { opacity: 0.85; cursor: default; }
+.tc-card--live:hover { border-color: #4caf50; }
+
+.tc-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.tc-match-id {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tc-chip {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 99px;
+  letter-spacing: 0.03em;
+}
+.tc-chip--live {
+  color: #4caf50;
+  border: 1px solid #4caf5066;
+  animation: pulse-green 1.6s ease-in-out infinite;
+}
+.tc-chip--done    { color: var(--text-dim); border: 1px solid var(--border); }
+.tc-chip--pending { color: var(--text-dim); border: 1px solid var(--border); opacity: 0.5; }
+
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.tc-board-wrap {
+  border-radius: 4px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.tc-bye-label {
+  width: 140px;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+
+.tc-player {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  min-width: 0;
+}
+.tc-player--active { color: var(--text); }
+.tc-player-symbol  { flex-shrink: 0; font-size: 0.9rem; }
+.tc-player-name    { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-advancing      { color: #4caf50; margin-left: auto; flex-shrink: 0; }
+
+/* ── BracketPanel ────────────────────────────────────────────────────────── */
+
+.tc-bracket-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 100;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+.tc-bracket-panel {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  width: min(420px, 90vw);
+  height: 100%;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.tc-bracket-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.tc-bracket-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+.tc-bracket-close:hover { color: var(--text); }
+
+.tc-champion-badge {
+  background: rgba(255, 193, 7, 0.12);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  color: #ffc107;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  text-align: center;
+}
+
+.tc-standings h3, .tc-match-list h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.6rem;
+}
+
+.tc-standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.tc-standings-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.tc-standings-table td {
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.tc-row--champion td { color: #ffc107; font-weight: 600; }
+
+.tc-bracket-match {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.tc-bracket-match--live   { color: var(--text); }
+.tc-bracket-match--complete { color: var(--text-dim); }
+.tc-bracket-match--pending  { color: var(--text-dim); opacity: 0.6; }
+
+.tc-bracket-match-id {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  min-width: 44px;
+  text-transform: uppercase;
+}
+.tc-bracket-winner { font-weight: 700; color: var(--text); }
+.tc-bracket-vs {
+  flex: 1;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+/* ── GameDetail back button ──────────────────────────────────────────────── */
+
+.btn-back {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.btn-back:hover { border-color: var(--text-dim); color: var(--text); }
+
+.tc-detail-match-id {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}

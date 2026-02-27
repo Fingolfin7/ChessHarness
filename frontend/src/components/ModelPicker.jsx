@@ -4,7 +4,7 @@ export default function ModelPicker({
   models, authProviders, authReady,
   onConnect, onDisconnect,
   onCopilotDeviceStart, onCopilotDevicePoll,
-  onStart, error, defaultSettings,
+  onStart, onTournament, error, defaultSettings,
 }) {
   const [white, setWhite] = useState('')
   const [black, setBlack] = useState('')
@@ -433,6 +433,16 @@ export default function ModelPicker({
           >
             Start Game
           </button>
+
+          {onTournament && (
+            <button
+              className="start-btn"
+              style={{ marginTop: '0.5rem', background: 'var(--surface-3)', border: '1px solid var(--border)' }}
+              onClick={onTournament}
+            >
+              ♛ Tournament
+            </button>
+          )}
         </div>
       </div>
     </div>

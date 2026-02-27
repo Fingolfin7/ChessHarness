@@ -613,6 +613,255 @@ async def copilot_device_poll(payload: dict):
 
 
 # --------------------------------------------------------------------------- #
+# Tournament broadcast                                                         #
+# --------------------------------------------------------------------------- #
+
+import dataclasses as _dc
+
+from chessharness.tournaments import (
+    KnockoutTournament,
+    TournamentParticipant,
+    create_tournament,
+)
+from chessharness.tournaments.events import (
+    MatchGameEvent,
+    TournamentCompleteEvent,
+    TournamentEvent,
+)
+
+
+class _TournamentBroadcaster:
+    """
+    Singleton that manages the active tournament and its WebSocket subscribers.
+
+    Two subscription types:
+      - all_subscribers  : receive every TournamentEvent (for the overview page)
+      - game_subscribers : receive per-match GameEvents only (for the detail view)
+
+    A replay log is kept per match so late-connecting clients catch up instantly.
+    """
+
+    def __init__(self) -> None:
+        self._all_subs: list[asyncio.Queue] = []
+        self._game_subs: dict[str, list[asyncio.Queue]] = {}
+        self._game_log: dict[str, list[dict]] = {}   # match_id → serialised events
+        self._tournament_log: list[dict] = []         # all tournament events, serialised
+        self.status: dict = {"state": "idle"}
+        self._task: asyncio.Task | None = None
+
+    # ── Subscriptions ────────────────────────────────────────────────── #
+
+    def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue()
+        self._all_subs.append(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        try:
+            self._all_subs.remove(q)
+        except ValueError:
+            pass
+
+    def subscribe_game(self, match_id: str) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue()
+        self._game_subs.setdefault(match_id, []).append(q)
+        return q
+
+    def unsubscribe_game(self, match_id: str, q: asyncio.Queue) -> None:
+        subs = self._game_subs.get(match_id, [])
+        try:
+            subs.remove(q)
+        except ValueError:
+            pass
+
+    def replay_log(self) -> list[dict]:
+        return list(self._tournament_log)
+
+    def game_replay_log(self, match_id: str) -> list[dict]:
+        return list(self._game_log.get(match_id, []))
+
+    # ── Broadcasting ─────────────────────────────────────────────────── #
+
+    async def _broadcast_all(self, payload: dict) -> None:
+        self._tournament_log.append(payload)
+        for q in list(self._all_subs):
+            await q.put(payload)
+
+    async def _broadcast_game(self, match_id: str, payload: dict) -> None:
+        self._game_log.setdefault(match_id, []).append(payload)
+        for q in list(self._game_subs.get(match_id, [])):
+            await q.put(payload)
+
+    # ── Tournament runner ─────────────────────────────────────────────── #
+
+    def start(
+        self,
+        participants: list[TournamentParticipant],
+        config,
+        player_factory,
+        tournament,
+    ) -> None:
+        if self._task and not self._task.done():
+            raise RuntimeError("A tournament is already running.")
+        self._tournament_log.clear()
+        self._game_log.clear()
+        self.status = {"state": "running", "participants": [p.display_name for p in participants]}
+        self._task = asyncio.create_task(
+            self._run(participants, config, player_factory, tournament)
+        )
+
+    async def _run(self, participants, config, player_factory, tournament) -> None:
+        try:
+            async for event in tournament.run(participants, game_cfg, player_factory):
+                t_payload = _to_json_dict(event)
+                await self._broadcast_all(t_payload)
+
+                if isinstance(event, MatchGameEvent):
+                    g_payload = _to_json_dict(event.game_event)
+                    await self._broadcast_game(event.match_id, g_payload)
+
+                if isinstance(event, TournamentCompleteEvent):
+                    self.status = {
+                        "state": "complete",
+                        "winner": event.winner_name,
+                    }
+        except Exception as exc:
+            logger.error("Tournament error: %s", exc, exc_info=True)
+            self.status = {"state": "error", "detail": str(exc)}
+            err = {"type": "error", "message": str(exc)}
+            await self._broadcast_all(err)
+
+
+_tournament_broadcaster = _TournamentBroadcaster()
+
+
+def _to_json_dict(obj) -> dict:
+    """Recursively convert a dataclass (and nested dataclasses) to a JSON-safe dict."""
+    d = _dc.asdict(obj)
+    d["type"] = type(obj).__name__
+    return d
+
+
+@app.get("/api/tournament/status")
+def tournament_status():
+    return _tournament_broadcaster.status
+
+
+@app.post("/api/tournament/start")
+async def tournament_start(payload: dict):
+    """
+    Start a new tournament.
+
+    Expected body:
+    {
+      "tournament_type": "knockout",
+      "draw_handling": "rematch",
+      "participants": [
+        {"provider": "anthropic", "model_id": "claude-sonnet-4-6", "name": "Claude Sonnet"}
+      ]
+    }
+    """
+    if _tournament_broadcaster.status.get("state") == "running":
+        from fastapi import HTTPException
+        raise HTTPException(status_code=409, detail="A tournament is already running.")
+
+    tournament_type = payload.get("tournament_type", "knockout")
+    draw_handling = payload.get("draw_handling", "rematch")
+    raw_participants = payload.get("participants", [])
+
+    if len(raw_participants) < 2:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Need at least 2 participants.")
+
+    providers_cfg = await _providers_with_auth_overrides_async()
+
+    participants = []
+    for i, rp in enumerate(raw_participants, 1):
+        provider_name = rp["provider"]
+        model_id = rp["model_id"]
+        display_name = rp.get("name", model_id)
+        model_entry = _find_model_entry(providers_cfg, provider_name, model_id)
+        if model_entry is None:
+            from chessharness.config import ModelEntry as _ME
+            model_entry = _ME(id=model_id, name=display_name)
+        participants.append(
+            TournamentParticipant(
+                provider_name=provider_name,
+                model=model_entry,
+                seed=i,
+            )
+        )
+
+    game_cfg = config.game
+
+    def player_factory(participant: TournamentParticipant):
+        provider = create_provider(
+            participant.provider_name,
+            participant.model.id,
+            providers_cfg,
+            supports_vision_override=participant.model.supports_vision,
+        )
+        return create_player(
+            participant.provider_name,
+            participant.display_name,
+            provider,
+            game_cfg.show_legal_moves,
+            game_cfg.move_timeout,
+            game_cfg.max_output_tokens,
+            game_cfg.reasoning_effort,
+        )
+
+    tournament = create_tournament(tournament_type, draw_handling=draw_handling)
+    _tournament_broadcaster.start(participants, config, player_factory, tournament)
+
+    return {"started": True, "participants": [p.display_name for p in participants]}
+
+
+@app.websocket("/ws/tournament")
+async def tournament_ws(ws: WebSocket) -> None:
+    """
+    Subscribe to all tournament events (bracket updates + per-game board updates).
+    Replays the full event log on connect so late joiners are caught up.
+    """
+    await ws.accept()
+    q = _tournament_broadcaster.subscribe()
+    try:
+        # Send replay log first so the client can reconstruct current state
+        for past_event in _tournament_broadcaster.replay_log():
+            await ws.send_text(json.dumps(past_event, default=str))
+
+        # Then stream live events
+        while True:
+            payload = await q.get()
+            await ws.send_text(json.dumps(payload, default=str))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _tournament_broadcaster.unsubscribe(q)
+
+
+@app.websocket("/ws/tournament/game/{match_id}")
+async def tournament_game_ws(ws: WebSocket, match_id: str) -> None:
+    """
+    Subscribe to GameEvents for a specific tournament match.
+    Replays past events on connect (for games already in progress or finished).
+    """
+    await ws.accept()
+    q = _tournament_broadcaster.subscribe_game(match_id)
+    try:
+        for past_event in _tournament_broadcaster.game_replay_log(match_id):
+            await ws.send_text(json.dumps(past_event, default=str))
+
+        while True:
+            payload = await q.get()
+            await ws.send_text(json.dumps(payload, default=str))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _tournament_broadcaster.unsubscribe_game(match_id, q)
+
+
+# --------------------------------------------------------------------------- #
 # WebSocket game                                                                #
 # --------------------------------------------------------------------------- #
 

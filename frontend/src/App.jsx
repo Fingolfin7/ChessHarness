@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import ModelPicker from './components/ModelPicker.jsx'
 import GameView from './components/GameView.jsx'
+import TournamentPage from './components/tournament/TournamentPage.jsx'
 
 const INITIAL_STATE = {
   phase: 'setup',       // 'setup' | 'playing' | 'over'
@@ -282,6 +283,10 @@ export default function App() {
     }
   }, [])
 
+  if (state.phase === 'tournament') {
+    return <TournamentPage onNewTournament={newGame} />
+  }
+
   if (state.phase === 'setup') {
     return (
       <ModelPicker
@@ -293,6 +298,7 @@ export default function App() {
         onCopilotDeviceStart={startCopilotDeviceFlow}
         onCopilotDevicePoll={pollCopilotDeviceFlow}
         onStart={startGame}
+        onTournament={() => setState(s => ({ ...s, phase: 'tournament' }))}
         error={state.error}
         defaultSettings={defaultSettings}
       />
