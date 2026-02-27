@@ -33,15 +33,15 @@ function TournamentHeader({ status, currentRound, totalRounds, winner, onBracket
       <div className="header-controls">
         <span className={`tc-status-label tc-status-${status}`}>{statusLabel}</span>
         <button className="btn" onClick={onBracket}>Bracket</button>
-        {status === 'complete' && (
-          <button className="btn btn-new" onClick={onNewTournament}>New Tournament</button>
+        {status !== 'idle' && (
+          <button className="btn btn-back" onClick={onNewTournament}>← New Tournament</button>
         )}
       </div>
     </header>
   )
 }
 
-export default function TournamentPage({ onNewTournament }) {
+export default function TournamentPage({ onNewTournament, onBackToSetup }) {
   const tournamentState = useTournamentSocket()
   const { status, currentRound, totalRounds, pairings, matches, standings, winner, error } = tournamentState
 

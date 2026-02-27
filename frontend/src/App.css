@@ -727,6 +727,180 @@ html, body, #root {
   flex-shrink: 0;
 }
 
+/* ── Tournament entry link (on setup screen) ─────────────────────────────── */
+
+.tournament-link-btn {
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: var(--radius);
+  font-size: 0.88rem;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: border-color 0.15s, color 0.15s;
+}
+.tournament-link-btn:hover {
+  border-color: var(--dark-sq);
+  color: var(--text);
+}
+
+/* ── Tournament Setup page ───────────────────────────────────────────────── */
+
+.ts-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.ts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.4rem 1.8rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.ts-back-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ts-back-btn:hover { border-color: var(--text-dim); color: var(--text); }
+
+.ts-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+.ts-crown { font-size: 1.8rem; line-height: 1; }
+.ts-title h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.3px; }
+
+.ts-section {
+  padding: 1.4rem 1.8rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.ts-section:last-of-type { border-bottom: none; }
+
+.ts-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.ts-section-header h2 {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.ts-section-hint {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.ts-player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ts-player-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.ts-player-seed {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  min-width: 1.4rem;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ts-model-select {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--radius);
+  font-size: 0.88rem;
+  cursor: pointer;
+  min-width: 0;
+}
+.ts-model-select:focus { outline: none; border-color: var(--dark-sq); }
+.ts-model-select option, .ts-model-select optgroup { background: var(--surface-2); }
+
+.ts-remove-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.ts-remove-btn:hover { border-color: var(--border); color: var(--error); }
+
+.ts-add-btn {
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  padding: 0.35rem 0.85rem;
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.ts-add-btn:hover { border-color: var(--dark-sq); color: var(--text); }
+
+.ts-bye-note {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  padding: 0.4rem 0.6rem;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--dark-sq);
+}
+
+.ts-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.ts-settings-label {
+  font-size: 0.88rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.ts-card > .start-btn {
+  margin: 1.2rem 1.8rem 1.4rem;
+}
+
 /* ── Tournament broadcast UI ─────────────────────────────────────────────── */
 
 .tc-page {

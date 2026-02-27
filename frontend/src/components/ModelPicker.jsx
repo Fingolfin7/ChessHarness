@@ -435,12 +435,8 @@ export default function ModelPicker({
           </button>
 
           {onTournament && (
-            <button
-              className="start-btn"
-              style={{ marginTop: '0.5rem', background: 'var(--surface-3)', border: '1px solid var(--border)' }}
-              onClick={onTournament}
-            >
-              ♛ Tournament
+            <button className="tournament-link-btn" onClick={onTournament}>
+              ♛ Tournament mode
             </button>
           )}
         </div>

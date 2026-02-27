@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import ModelPicker from './components/ModelPicker.jsx'
 import GameView from './components/GameView.jsx'
 import TournamentPage from './components/tournament/TournamentPage.jsx'
+import TournamentSetup from './components/tournament/TournamentSetup.jsx'
 
 const INITIAL_STATE = {
   phase: 'setup',       // 'setup' | 'playing' | 'over'
@@ -209,6 +210,24 @@ export default function App() {
     setState(INITIAL_STATE)
   }, [])
 
+  // Start a tournament: POST to backend then switch to live broadcast view
+  const startTournament = useCallback(async (participants, drawHandling) => {
+    const res = await fetch('/api/tournament/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tournament_type: 'knockout',
+        draw_handling: drawHandling,
+        participants,
+      }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.detail || `Server error ${res.status}`)
+    }
+    setState(s => ({ ...s, phase: 'tournament', error: null }))
+  }, [])
+
 
   const refreshModels = useCallback(() => {
     fetch('/api/models').then(r => r.json()).then(setModels).catch(() => {})
@@ -284,7 +303,23 @@ export default function App() {
   }, [])
 
   if (state.phase === 'tournament') {
-    return <TournamentPage onNewTournament={newGame} />
+    return (
+      <TournamentPage
+        onNewTournament={() => setState(s => ({ ...s, phase: 'tournament-setup', error: null }))}
+      />
+    )
+  }
+
+  if (state.phase === 'tournament-setup') {
+    return (
+      <TournamentSetup
+        models={models}
+        authReady={authReady}
+        onBack={() => setState(s => ({ ...s, phase: 'setup', error: null }))}
+        onStart={startTournament}
+        error={state.error}
+      />
+    )
   }
 
   if (state.phase === 'setup') {
@@ -298,7 +333,7 @@ export default function App() {
         onCopilotDeviceStart={startCopilotDeviceFlow}
         onCopilotDevicePoll={pollCopilotDeviceFlow}
         onStart={startGame}
-        onTournament={() => setState(s => ({ ...s, phase: 'tournament' }))}
+        onTournament={() => setState(s => ({ ...s, phase: 'tournament-setup', error: null }))}
         error={state.error}
         defaultSettings={defaultSettings}
       />
