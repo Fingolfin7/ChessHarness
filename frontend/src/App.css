@@ -1149,6 +1149,13 @@ html, body, #root {
   gap: 1rem;
 }
 
+/* Single game: cap width so it doesn't swallow the whole panel */
+.tc-card:only-child {
+  max-width: 80%;
+  justify-self: center;
+  width: 100%;
+}
+
 .tc-grid-empty {
   color: var(--text-dim);
   text-align: center;

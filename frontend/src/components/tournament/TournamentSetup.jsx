@@ -61,6 +61,14 @@ export default function TournamentSetup() {
 
   const [players, setPlayers] = useState(['', ''])
   const [drawHandling, setDrawHandling] = useState('rematch')
+  const [settings, setSettings] = useState({
+    maxRetries: 3,
+    showLegalMoves: true,
+    boardInput: 'text',
+    annotatePgn: false,
+    maxOutputTokens: 5120,
+    reasoningEffort: 'default',
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -110,6 +118,14 @@ export default function TournamentSetup() {
           tournament_type: 'knockout',
           draw_handling: drawHandling,
           participants,
+          settings: {
+            max_retries: settings.maxRetries,
+            show_legal_moves: settings.showLegalMoves,
+            board_input: settings.boardInput,
+            annotate_pgn: settings.annotatePgn,
+            max_output_tokens: settings.maxOutputTokens,
+            reasoning_effort: settings.reasoningEffort,
+          },
         }),
       })
 
@@ -201,6 +217,7 @@ export default function TournamentSetup() {
           <div className="ts-section-header">
             <h2>Settings</h2>
           </div>
+
           <div className="ts-settings-row">
             <label className="ts-settings-label" htmlFor="draw-handling">Draw handling</label>
             <select
@@ -213,6 +230,86 @@ export default function TournamentSetup() {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+          </div>
+
+          <div className="ts-settings-row">
+            <label className="ts-settings-label" htmlFor="ts-max-retries">Max Retries</label>
+            <input
+              id="ts-max-retries"
+              type="number"
+              min="1"
+              max="10"
+              className="settings-number"
+              value={settings.maxRetries}
+              onChange={e => setSettings(s => ({ ...s, maxRetries: Math.max(1, parseInt(e.target.value) || 1) }))}
+            />
+          </div>
+
+          <div className="ts-settings-row">
+            <label className="ts-settings-label" htmlFor="ts-board-input">Board Input</label>
+            <select
+              id="ts-board-input"
+              className="settings-select"
+              value={settings.boardInput}
+              onChange={e => setSettings(s => ({ ...s, boardInput: e.target.value }))}
+            >
+              <option value="text">Text (FEN + moves)</option>
+              <option value="image">Image (board screenshot)</option>
+            </select>
+          </div>
+
+          <div className="ts-settings-row">
+            <label className="ts-settings-label" htmlFor="ts-max-tokens">Max Output Tokens</label>
+            <input
+              id="ts-max-tokens"
+              type="number"
+              min="64"
+              max="32768"
+              className="settings-number"
+              value={settings.maxOutputTokens}
+              onChange={e => setSettings(s => ({ ...s, maxOutputTokens: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+            />
+          </div>
+
+          <div className="ts-settings-row">
+            <label className="ts-settings-label" htmlFor="ts-reasoning">Reasoning Effort</label>
+            <select
+              id="ts-reasoning"
+              className="settings-select"
+              value={settings.reasoningEffort}
+              onChange={e => setSettings(s => ({ ...s, reasoningEffort: e.target.value }))}
+            >
+              <option value="default">Default</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+
+          <div className="settings-row settings-row-check">
+            <label className="ts-settings-label settings-check-label" htmlFor="ts-legal-moves">
+              <input
+                id="ts-legal-moves"
+                type="checkbox"
+                className="settings-checkbox"
+                checked={settings.showLegalMoves}
+                onChange={e => setSettings(s => ({ ...s, showLegalMoves: e.target.checked }))}
+              />
+              Include legal move list in prompt
+            </label>
+          </div>
+
+          <div className="settings-row settings-row-check">
+            <label className="ts-settings-label settings-check-label" htmlFor="ts-annotate-pgn">
+              <input
+                id="ts-annotate-pgn"
+                type="checkbox"
+                className="settings-checkbox"
+                checked={settings.annotatePgn}
+                onChange={e => setSettings(s => ({ ...s, annotatePgn: e.target.checked }))}
+              />
+              Export annotated PGN (include model reasoning)
+            </label>
           </div>
         </section>
 

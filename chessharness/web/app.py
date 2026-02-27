@@ -804,6 +804,28 @@ async def tournament_start(payload: dict):
         )
 
     game_cfg = config.game
+    ui_settings = payload.get("settings") or {}
+    if ui_settings:
+        overrides: dict = {}
+        if "max_retries" in ui_settings:
+            overrides["max_retries"] = max(1, int(ui_settings["max_retries"]))
+        if "show_legal_moves" in ui_settings:
+            overrides["show_legal_moves"] = bool(ui_settings["show_legal_moves"])
+        if ui_settings.get("board_input") in ("text", "image"):
+            overrides["board_input"] = ui_settings["board_input"]
+        if "annotate_pgn" in ui_settings:
+            overrides["annotate_pgn"] = bool(ui_settings["annotate_pgn"])
+        if "max_output_tokens" in ui_settings:
+            overrides["max_output_tokens"] = max(1, int(ui_settings["max_output_tokens"]))
+        if "reasoning_effort" in ui_settings:
+            effort = ui_settings["reasoning_effort"]
+            if effort in ("low", "medium", "high", None, "", "default", "auto", "none"):
+                overrides["reasoning_effort"] = (
+                    effort if effort in ("low", "medium", "high") else None
+                )
+        if overrides:
+            game_cfg = replace(game_cfg, **overrides)
+    tournament_config = replace(config, game=game_cfg)
 
     def player_factory(participant: TournamentParticipant):
         provider = create_provider(
@@ -823,7 +845,7 @@ async def tournament_start(payload: dict):
         )
 
     tournament = create_tournament(tournament_type, draw_handling=draw_handling)
-    _tournament_broadcaster.start(participants, config, player_factory, tournament)
+    _tournament_broadcaster.start(participants, tournament_config, player_factory, tournament)
 
     return {"started": True, "participants": [p.display_name for p in participants]}
 
