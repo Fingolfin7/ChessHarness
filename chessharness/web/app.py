@@ -735,11 +735,22 @@ class _TournamentBroadcaster:
 _tournament_broadcaster = _TournamentBroadcaster()
 
 
-def _to_json_dict(obj) -> dict:
-    """Recursively convert a dataclass (and nested dataclasses) to a JSON-safe dict."""
-    d = _dc.asdict(obj)
-    d["type"] = type(obj).__name__
-    return d
+def _to_json_dict(obj):
+    """Recursively convert a dataclass to a JSON-safe structure.
+
+    Unlike dataclasses.asdict(), this injects a "type" key (the class name) at
+    *every* level of nesting, not just the top.  That lets the frontend reducer
+    dispatch on the type of nested events (e.g. the game_event inside a
+    MatchGameEvent) without extra bookkeeping.
+    """
+    if _dc.is_dataclass(obj) and not isinstance(obj, type):
+        d: dict = {"type": type(obj).__name__}
+        for f in _dc.fields(obj):
+            d[f.name] = _to_json_dict(getattr(obj, f.name))
+        return d
+    if isinstance(obj, (list, tuple)):
+        return [_to_json_dict(item) for item in obj]
+    return obj
 
 
 @app.get("/api/tournament/status")
