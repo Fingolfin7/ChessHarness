@@ -44,6 +44,7 @@ export function AppProvider({ children }) {
         annotatePgn: cfg.annotate_pgn ?? false,
         maxOutputTokens: cfg.max_output_tokens ?? 5120,
         reasoningEffort: cfg.reasoning_effort ?? 'default',
+        startingFen: cfg.starting_fen ?? '',
       }))
       .catch(() => {})
   }, [])

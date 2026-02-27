@@ -9,7 +9,7 @@
  * instead of showing an error.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext.jsx'
 import ModelDropdown, { VisionIcon } from '../ModelDropdown.jsx'
@@ -48,7 +48,7 @@ function ModelSelect({ index, value, modelsByProvider, onChange, onRemove, canRe
 
 export default function TournamentSetup() {
   const navigate = useNavigate()
-  const { models, authReady } = useAppContext()
+  const { models, authReady, defaultSettings } = useAppContext()
 
   const [players, setPlayers] = useState(['', ''])
   const [drawHandling, setDrawHandling] = useState('rematch')
@@ -63,6 +63,19 @@ export default function TournamentSetup() {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (!defaultSettings) return
+    setSettings(s => ({
+      ...s,
+      maxRetries: defaultSettings.maxRetries,
+      showLegalMoves: defaultSettings.showLegalMoves,
+      boardInput: defaultSettings.boardInput,
+      annotatePgn: defaultSettings.annotatePgn,
+      maxOutputTokens: defaultSettings.maxOutputTokens,
+      reasoningEffort: defaultSettings.reasoningEffort,
+    }))
+  }, [defaultSettings])
 
   // Only show models from connected providers (authProviders filtering
   // happens on the server; models list already contains only connected ones)

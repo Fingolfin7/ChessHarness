@@ -206,7 +206,6 @@ export default function GamePage() {
         onCopilotDeviceStart={startCopilotDeviceFlow}
         onCopilotDevicePoll={pollCopilotDeviceFlow}
         onStart={startGame}
-        onTournament={() => navigate('/tournament/setup')}
         error={state.error}
         defaultSettings={defaultSettings}
       />

@@ -24,7 +24,7 @@ game:
 
   # true  — embed model reasoning as comments in exported PGN ("annotated PGN")
   # false — export plain PGN without reasoning comments
-  annotate_pgn: false
+  annotate_pgn: true
 
   # Output token budget per model response.
   max_output_tokens: 5120

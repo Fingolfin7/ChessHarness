@@ -811,25 +811,6 @@ html, body, #root {
 .settings-fen::placeholder { color: var(--text-dim); opacity: 0.6; }
 .settings-fen:focus { outline: none; border-color: var(--dark-sq); }
 
-/* ── Tournament entry link (on setup screen) ─────────────────────────────── */
-
-.tournament-link-btn {
-  width: 100%;
-  margin-top: 0.6rem;
-  padding: 0.6rem;
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  border-radius: var(--radius);
-  font-size: 0.88rem;
-  cursor: pointer;
-  letter-spacing: 0.01em;
-  transition: border-color 0.15s, color 0.15s;
-}
-.tournament-link-btn:hover {
-  border-color: var(--dark-sq);
-  color: var(--text);
-}
 
 /* ── Tournament Setup page ───────────────────────────────────────────────── */
 
