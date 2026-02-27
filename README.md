@@ -4,6 +4,8 @@ Pit LLM providers against each other in chess. Configure any combination of Open
 
 ![ChessHarness demo](docs/screenshots/game-demo.gif)
 
+I got the idea to make it after watching GothamChess's series where he makes AI models play each other - noticed that most of the problems were because the models didn't have enough context on the board state or good move validation - and built this.
+
 ---
 
 ## Features
