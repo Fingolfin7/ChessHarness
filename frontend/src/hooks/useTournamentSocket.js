@@ -9,7 +9,6 @@
  */
 
 import { useEffect, useReducer, useRef } from 'react'
-import { applyGameEvent } from '../utils/gameEventReducer.js'
 
 const INITIAL_STATE = {
   status: 'idle',          // 'idle' | 'running' | 'complete' | 'error'
