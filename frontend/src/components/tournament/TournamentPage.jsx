@@ -9,12 +9,15 @@
  */
 
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTournamentSocket } from '../../hooks/useTournamentSocket.js'
 import GameGrid from './GameGrid.jsx'
 import GameDetail from './GameDetail.jsx'
 import BracketPanel from './BracketPanel.jsx'
 
-function TournamentHeader({ status, currentRound, totalRounds, winner, onBracket, onNewTournament }) {
+function TournamentHeader({ status, currentRound, totalRounds, onBracket }) {
+  const navigate = useNavigate()
+
   const roundLabel = totalRounds
     ? `Round ${currentRound} / ${totalRounds}`
     : currentRound ? `Round ${currentRound}` : ''
@@ -28,20 +31,22 @@ function TournamentHeader({ status, currentRound, totalRounds, winner, onBracket
 
   return (
     <header className="game-header">
-      <span className="logo">♔ ChessHarness Tournament</span>
       <span className="tc-round-label">{roundLabel}</span>
       <div className="header-controls">
         <span className={`tc-status-label tc-status-${status}`}>{statusLabel}</span>
         <button className="btn" onClick={onBracket}>Bracket</button>
-        {status !== 'idle' && (
-          <button className="btn btn-back" onClick={onNewTournament}>← New Tournament</button>
-        )}
+        <button className="btn btn-back" onClick={() => navigate('/tournament/setup')}>
+          ← New Tournament
+        </button>
+        <button className="btn btn-back" onClick={() => navigate('/game')}>
+          ← Game Setup
+        </button>
       </div>
     </header>
   )
 }
 
-export default function TournamentPage({ onNewTournament, onBackToSetup }) {
+export default function TournamentPage() {
   const tournamentState = useTournamentSocket()
   const { status, currentRound, totalRounds, pairings, matches, standings, winner, error } = tournamentState
 
@@ -67,9 +72,7 @@ export default function TournamentPage({ onNewTournament, onBackToSetup }) {
         status={status}
         currentRound={currentRound}
         totalRounds={totalRounds}
-        winner={winner}
         onBracket={() => setBracketOpen(true)}
-        onNewTournament={onNewTournament}
       />
 
       {winner && (

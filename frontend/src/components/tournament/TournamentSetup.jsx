@@ -4,9 +4,14 @@
  * Lets the user build a participant list (2–16 players) by picking any
  * available model for each slot, then configure draw handling before
  * launching the tournament.
+ *
+ * If a tournament is already running (409), navigates to /tournament
+ * instead of showing an error.
  */
 
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAppContext } from '../../context/AppContext.jsx'
 
 const MAX_PLAYERS = 16
 const DRAW_OPTIONS = [
@@ -23,7 +28,7 @@ function byeCount(n) {
   return nextPowerOfTwo(n) - n
 }
 
-function ModelSelect({ index, value, models, modelsByProvider, onChange, onRemove, canRemove }) {
+function ModelSelect({ index, value, modelsByProvider, onChange, onRemove, canRemove }) {
   return (
     <div className="ts-player-row">
       <span className="ts-player-seed">{index + 1}</span>
@@ -50,14 +55,17 @@ function ModelSelect({ index, value, models, modelsByProvider, onChange, onRemov
   )
 }
 
-export default function TournamentSetup({ models, authReady, onBack, onStart, error: parentError }) {
-  const [players, setPlayers] = useState(['', ''])   // array of JSON strings (or '')
+export default function TournamentSetup() {
+  const navigate = useNavigate()
+  const { models, authReady } = useAppContext()
+
+  const [players, setPlayers] = useState(['', ''])
   const [drawHandling, setDrawHandling] = useState('rematch')
   const [loading, setLoading] = useState(false)
-  const [localError, setLocalError] = useState(null)
+  const [error, setError] = useState(null)
 
-  const error = localError || parentError
-
+  // Only show models from connected providers (authProviders filtering
+  // happens on the server; models list already contains only connected ones)
   const modelsByProvider = useMemo(() => {
     const out = {}
     for (const m of models) {
@@ -84,9 +92,9 @@ export default function TournamentSetup({ models, authReady, onBack, onStart, er
   }
 
   const handleStart = async () => {
-    setLocalError(null)
+    setError(null)
     const filled = players.filter(Boolean)
-    if (filled.length < 2) { setLocalError('Select at least 2 models.'); return }
+    if (filled.length < 2) { setError('Select at least 2 models.'); return }
 
     const participants = filled.map(v => {
       const m = JSON.parse(v)
@@ -95,9 +103,32 @@ export default function TournamentSetup({ models, authReady, onBack, onStart, er
 
     setLoading(true)
     try {
-      await onStart(participants, drawHandling)
+      const res = await fetch('/api/tournament/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tournament_type: 'knockout',
+          draw_handling: drawHandling,
+          participants,
+        }),
+      })
+
+      if (res.status === 409) {
+        // Tournament already running — go watch it
+        navigate('/tournament')
+        return
+      }
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.detail || `Server error ${res.status}`)
+        setLoading(false)
+        return
+      }
+
+      navigate('/tournament')
     } catch (e) {
-      setLocalError(e.message || 'Failed to start tournament.')
+      setError(e.message || 'Failed to start tournament.')
       setLoading(false)
     }
   }
@@ -108,15 +139,26 @@ export default function TournamentSetup({ models, authReady, onBack, onStart, er
 
         {/* Header */}
         <div className="ts-header">
-          <button className="ts-back-btn" onClick={onBack}>← Back</button>
+          <button className="ts-back-btn" onClick={() => navigate('/game')}>← Back</button>
           <div className="ts-title">
             <span className="ts-crown">♛</span>
             <h1>Tournament Setup</h1>
           </div>
-          <div style={{ width: 64 }} /> {/* spacer to centre title */}
+          <div style={{ width: 64 }} />
         </div>
 
         {error && <div className="setup-error">{error}</div>}
+
+        {!authReady && (
+          <p className="ts-bye-note">Checking providers…</p>
+        )}
+
+        {authReady && models.length === 0 && (
+          <div className="setup-error">
+            No models available. Connect a provider on the{' '}
+            <button className="btn-link" onClick={() => navigate('/game')}>game setup</button> page first.
+          </div>
+        )}
 
         {/* Participants */}
         <section className="ts-section">
@@ -133,7 +175,6 @@ export default function TournamentSetup({ models, authReady, onBack, onStart, er
                 key={i}
                 index={i}
                 value={val}
-                models={models}
                 modelsByProvider={modelsByProvider}
                 onChange={handleChange}
                 onRemove={handleRemove}
@@ -179,7 +220,7 @@ export default function TournamentSetup({ models, authReady, onBack, onStart, er
         <button
           className="start-btn"
           onClick={handleStart}
-          disabled={!canStart}
+          disabled={!canStart || models.length === 0}
         >
           {loading ? 'Starting…' : 'Start Tournament'}
         </button>

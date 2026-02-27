@@ -87,7 +87,6 @@ export default function GameView({ state, onStop, onNewGame }) {
 
       {/* ── Header ── */}
       <header className="game-header">
-        <span className="logo">♔ ChessHarness</span>
         <div className="header-controls">
           {!isOver && <button className="btn btn-stop" onClick={onStop}>Stop Game</button>}
           {isOver  && <button className="btn btn-new"  onClick={onNewGame}>New Game</button>}

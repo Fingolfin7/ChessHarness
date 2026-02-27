@@ -10,6 +10,7 @@
  * Clicking the card navigates to the GameDetail view.
  */
 
+import { useEffect, useRef, useState } from 'react'
 import { Chessboard } from 'react-chessboard'
 
 function StatusChip({ status, result, advancingName }) {
@@ -24,6 +25,20 @@ function StatusChip({ status, result, advancingName }) {
 }
 
 export default function GameCard({ match, matchId, onClick }) {
+  const boardWrapRef = useRef(null)
+  const [boardWidth, setBoardWidth] = useState(200)
+
+  useEffect(() => {
+    const el = boardWrapRef.current
+    if (!el) return
+    const observer = new ResizeObserver(entries => {
+      const w = Math.floor(entries[0].contentRect.width)
+      if (w > 0) setBoardWidth(w)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   if (!match) return null
 
   const { whiteName, blackName, status, result, advancingName, fen, lastMove } = match
@@ -59,16 +74,16 @@ export default function GameCard({ match, matchId, onClick }) {
       </div>
 
       {/* Mini board */}
-      <div className="tc-board-wrap">
+      <div className="tc-board-wrap" ref={boardWrapRef}>
         {isBye ? (
-          <div className="tc-bye-label">BYE</div>
+          <div className="tc-bye-label" style={{ width: boardWidth, height: boardWidth }}>BYE</div>
         ) : (
           <Chessboard
             id={`card-${matchId}`}
             position={fen || 'start'}
             arePiecesDraggable={false}
             customArrows={customArrows}
-            boardWidth={140}
+            boardWidth={boardWidth}
             animationDuration={150}
             customBoardStyle={{ borderRadius: '4px' }}
           />
