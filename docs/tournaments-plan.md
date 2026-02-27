@@ -101,9 +101,8 @@ The display layer pattern-matches on these, just like `cli/display.py` does for 
 
 ### Rules
 - Single-elimination: lose once → out
-- Each match is **2 games** (white/black swap) by default, so colour advantage cancels
-- Scoring per match: 2 points for a win, 1 for a draw, 0 for a loss
-- Whoever scores more points advances; on exact tie → sudden-death game (white = loser of game 2)
+- Each match is **1 game** — colour (white/black) is assigned randomly per match
+- Winner of the game advances; on draw → sudden-death rematch with colours swapped (configurable)
 - If N participants is not a power of 2: top seeds get **byes** in round 1
 
 ### Bracket Generation
@@ -121,9 +120,9 @@ Seeding is determined by participant selection order (first picked = seed 1).
 - Matches **across rounds** are sequential (bracket dependency)
 
 ### Draw Handling (configurable)
-- `"rematch"` — play a sudden-death game until there is a winner (default)
-- `"coin_flip"` — random advancement on persistent draw
-- `"seed"` — higher seed advances on draw
+- `"rematch"` — play a sudden-death game with colours swapped until there is a winner (default)
+- `"coin_flip"` — random advancement on draw (no rematch)
+- `"seed"` — higher seed advances on draw (no rematch)
 
 ---
 
@@ -179,7 +178,6 @@ A new optional top-level `tournament` block:
 ```yaml
 tournament:
   type: knockout          # knockout | round_robin | swiss | arena
-  games_per_match: 2      # games per head-to-head match (white/black swap)
   draw_handling: rematch  # rematch | coin_flip | seed
   save_pgn: true          # save all match PGNs to pgn_dir
   concurrent_matches: true # run intra-round matches in parallel
@@ -248,13 +246,83 @@ The `tournament` block is optional; absent = use interactive prompts.
 - Unit-test bracket generation with mock participants and results (no LLM calls)
 - Use a `MockPlayer` that returns the first legal move instantly — same pattern as existing tests
 - Assert correct bracket advancement, bye logic, and draw-handling variants
-- Integration test: 2-participant knockout (1 match, 2 games) with mock players end-to-end
+- Integration test: 2-participant knockout (1 match, 1 game) with mock players end-to-end
+
+---
+
+## Web UI — Tournament Broadcast View (Phase 1)
+
+Inspired by Lichess tournament broadcasts: a multi-board overview where the user can click
+into any live game to watch it in detail.
+
+### Layout
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Knockout — Round 2 (Semi-finals)          [bracket button]     │
+├──────────────┬──────────────┬──────────────┬────────────────────┤
+│  QF-1 ●LIVE │  QF-2 ●LIVE │  QF-3 ●DONE │  QF-4 ●DONE        │
+│  [mini board]│  [mini board]│  [mini board]│  [mini board]      │
+│  GPT-4o      │  Gemini Pro  │  Claude ✓   │  Llama ✓           │
+│  vs Llama    │  vs Claude   │  1-0 (24)   │  0-1 (31)          │
+└──────────────┴──────────────┴──────────────┴────────────────────┘
+        ↓ click any live/finished card
+┌─────────────────────────────────────────────────────────────────┐
+│  ← Back to overview                                             │
+│  [full board]          │  GPT-4o (White)                        │
+│                        │  vs Llama (Black)                      │
+│                        │  Move 14 — White to move               │
+│                        │  ┌──────────────────────────────┐      │
+│                        │  │ 1.e4 e5  2.Nf3 Nc6  3.Bb5…  │      │
+│                        │  └──────────────────────────────┘      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Backend — WebSocket API
+
+Each concurrent game in a round gets its own WebSocket channel:
+
+```
+GET  /tournament/status          → full bracket JSON (snapshot)
+WS   /tournament/events          → TournamentEvent stream (all games)
+WS   /tournament/game/{match_id} → GameEvent stream for one game
+```
+
+`TournamentEvent` objects are serialised with `dataclasses.asdict()` — same pattern as
+the existing single-game WebSocket in `chessharness/web/app.py`.
+
+The frontend subscribes to `/tournament/events` for the overview (board thumbnails + status
+chips) and to `/tournament/game/{match_id}` when the user clicks into a game.
+
+### Frontend Components (React)
+
+| Component | Responsibility |
+|---|---|
+| `TournamentPage` | top-level: overview vs detail routing |
+| `BracketPanel` | collapsible bracket tree (slide-in from right) |
+| `GameGrid` | CSS grid of `GameCard` tiles |
+| `GameCard` | mini `react-chessboard` + player names + status chip (LIVE/DONE/BYE) + move count; pulses on new move |
+| `GameDetail` | full board + scrollable move list (SAN pairs) + player headers; mirrors the existing single-game view |
+| `MoveList` | move-number rows, current move highlighted, click to jump to position |
+
+### State Management
+
+- `useTournamentSocket()` hook: subscribes to `/tournament/events`, maintains
+  `{ matches: Map<match_id, MatchState> }` in React state
+- `useGameSocket(matchId)` hook: subscribes to `/tournament/game/{matchId}` only while
+  the detail view is open — disconnects on navigate back
+- `MatchState`: `{ status, fen, lastMove, moveSan[], white, black }`
+
+### Key UX Behaviours
+
+- Clicking a `GameCard` navigates to `GameDetail` without interrupting other live games
+- `GameCard` mini boards update live (FEN pushed on every `MoveAppliedEvent`)
+- Status chip: green "LIVE" pulse while game running, grey "DONE" with result badge when over
+- Bracket panel overlay shows the bracket tree at any time; advancing models are highlighted
 
 ---
 
 ## Non-Goals (out of scope for Phase 1)
 
-- Web UI tournament view (future: same events, WebSocket consumer)
 - Persistent tournament state / resume after crash
 - ELO rating updates
-- Spectator mode / live sharing
