@@ -17,7 +17,7 @@ import BracketPanel from './BracketPanel.jsx'
 
 // ── Header ────────────────────────────────────────────────────────────────── //
 
-function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBracket }) {
+function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBracket, onRestart }) {
   const navigate = useNavigate()
 
   const roundLabel = totalRounds
@@ -49,6 +49,9 @@ function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBra
         <button className="btn" onClick={onBracket}>Bracket</button>
         {status === 'running' && (
           <button className="btn btn-stop" onClick={handleStop}>■ Stop</button>
+        )}
+        {(status === 'complete' || status === 'error') && (
+          <button className="btn btn-rematch" onClick={onRestart}>↺ Restart</button>
         )}
         <button className="btn btn-back" onClick={() => navigate('/tournament/setup')}>
           ← New Tournament
@@ -225,6 +228,18 @@ export default function TournamentPage() {
   const [selectedMatchId, setSelectedMatchId] = useState(null)
   const [bracketOpen, setBracketOpen] = useState(false)
 
+  const handleRestart = async () => {
+    try {
+      const res = await fetch('/api/tournament/restart', { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(data.detail || `Failed to restart (${res.status})`)
+      }
+    } catch (e) {
+      alert(e.message || 'Failed to restart tournament.')
+    }
+  }
+
   if (selectedMatchId) {
     return (
       <GameDetail
@@ -243,6 +258,7 @@ export default function TournamentPage() {
         totalRounds={totalRounds}
         connStatus={connStatus}
         onBracket={() => setBracketOpen(true)}
+        onRestart={handleRestart}
       />
 
       {error && <div className="error-banner">{error}</div>}

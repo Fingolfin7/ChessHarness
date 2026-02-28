@@ -765,6 +765,7 @@ class _TournamentBroadcaster:
 
 
 _tournament_broadcaster = _TournamentBroadcaster()
+_last_tournament_payload: dict | None = None
 
 
 def _to_json_dict(obj):
@@ -906,7 +907,20 @@ async def tournament_start(payload: dict):
     tournament = create_tournament(tournament_type, draw_handling=draw_handling)
     _tournament_broadcaster.start(participants, tournament_config, player_factory, tournament)
 
+    global _last_tournament_payload
+    _last_tournament_payload = payload
+
     return {"started": True, "participants": [p.display_name for p in participants]}
+
+
+@app.post("/api/tournament/restart")
+async def tournament_restart():
+    """Restart the last tournament with identical participants, settings, and starting position."""
+    if _last_tournament_payload is None:
+        raise HTTPException(status_code=404, detail="No previous tournament to restart.")
+    if _tournament_broadcaster.status.get("state") == "running":
+        raise HTTPException(status_code=409, detail="A tournament is already running.")
+    return await tournament_start(_last_tournament_payload)
 
 
 @app.websocket("/ws/tournament")
@@ -926,7 +940,7 @@ async def tournament_ws(ws: WebSocket) -> None:
         while True:
             payload = await q.get()
             await ws.send_text(json.dumps(payload, default=str))
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     finally:
         _tournament_broadcaster.unsubscribe(q)
@@ -947,7 +961,7 @@ async def tournament_game_ws(ws: WebSocket, match_id: str) -> None:
         while True:
             payload = await q.get()
             await ws.send_text(json.dumps(payload, default=str))
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     finally:
         _tournament_broadcaster.unsubscribe_game(match_id, q)
