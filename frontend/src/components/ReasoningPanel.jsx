@@ -13,7 +13,7 @@ export default function ReasoningPanel({ color, name, reasoning, isThinking, isR
     <div className={`reasoning-panel ${color} ${isReviewing ? 'reviewing' : ''}`}>
       <div className="reasoning-header">
         <span className="reasoning-title">
-          {color === 'white' ? '♔' : '♚'} {name ?? '—'}
+          {color === 'white' ? '♚' : '♔'} {name ?? '—'}
         </span>
         <div className="reasoning-badges">
           {isThinking  && <span className="thinking-badge">thinking…</span>}

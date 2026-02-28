@@ -81,15 +81,43 @@ class ChessBoard:
 
         Returns None if neither format matches.
         """
+        move, _ = self.parse_move(move_str)
+        return move
+
+    def parse_move(self, move_str: str) -> tuple[chess.Move | None, str]:
+        """
+        Parse and validate a move string, returning (move, error_kind).
+
+        error_kind values:
+          ""          — success; move is legal
+          "illegal"   — valid notation but not legal in this position
+          "ambiguous" — valid SAN but needs disambiguation (e.g. "Rd3" when
+                        two rooks can reach d3)
+          "format"    — could not be parsed as UCI or SAN at all
+        """
         s = move_str.strip()
+
+        # UCI: from_uci() validates syntax only; legality is a separate check.
         try:
-            return chess.Move.from_uci(s)
+            move = chess.Move.from_uci(s)
+            if move in self._board.legal_moves:
+                return move, ""
+            return None, "illegal"
         except (ValueError, chess.InvalidMoveError):
             pass
+
+        # SAN: parse_san() is board-aware and raises specific subclasses.
         try:
-            return self._board.parse_san(s)
-        except (ValueError, chess.InvalidMoveError, chess.AmbiguousMoveError):
-            return None
+            move = self._board.parse_san(s)
+            return move, ""
+        except chess.AmbiguousMoveError:
+            return None, "ambiguous"
+        except chess.IllegalMoveError:
+            return None, "illegal"
+        except (ValueError, chess.InvalidMoveError):
+            pass
+
+        return None, "format"
 
     def is_legal(self, move: chess.Move) -> bool:
         return move in self._board.legal_moves

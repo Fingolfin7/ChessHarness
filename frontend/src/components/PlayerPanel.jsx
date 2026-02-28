@@ -4,7 +4,7 @@ export default function PlayerPanel({
   return (
     <div className={`player-panel ${color} ${isActive ? 'active' : ''}`}>
       <div className="player-info">
-        <span className="player-piece">{color === 'white' ? '♔' : '♚'}</span>
+        <span className="player-piece">{color === 'white' ? '♚' : '♔'}</span>
         <div>
           <div className="player-name">{name ?? '—'}</div>
           <div className="player-color-label">{color.toUpperCase()}</div>

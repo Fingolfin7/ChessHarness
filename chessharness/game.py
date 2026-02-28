@@ -188,31 +188,24 @@ async def run_game(
                 previous_error = error
                 continue
 
-            # --- Validate: UCI format ---
-            parsed = board.try_parse_move(response.move)
+            # --- Validate: parse + legality ---
+            parsed, error_kind = board.parse_move(response.move)
             if parsed is None:
-                error = (
-                    f"'{response.move}' is not a recognised move. "
-                    "Use UCI (e.g. e2e4, a7a8q) or SAN (e.g. e4, Nf3, cxd4, O-O)."
-                )
-                yield InvalidMoveEvent(
-                    color=current_color,
-                    attempted_move=response.move,
-                    raw_response=response.raw,
-                    reasoning=response.reasoning,
-                    error=error,
-                    attempt_num=attempt,
-                )
-                previous_invalid = response.move
-                previous_error = error
-                continue
-
-            # --- Validate: move is legal in this position ---
-            if not board.is_legal(parsed):
-                error = (
-                    f"'{response.move}' is syntactically valid UCI but not legal here. "
-                    f"Legal moves: {', '.join(board.legal_moves_san())}"
-                )
+                if error_kind == "illegal":
+                    error = f"'{response.move}' is illegal"
+                    if config.game.show_legal_moves:
+                        error += " — choose from the legal moves listed above."
+                elif error_kind == "ambiguous":
+                    error = (
+                        f"'{response.move}' is ambiguous — multiple pieces can make that move. "
+                        f"Use a disambiguated form (e.g. include the file or rank: Rbd3, R1d3). "
+                        f"Legal moves: {', '.join(board.legal_moves_san())}"
+                    )
+                else:  # "format"
+                    error = (
+                        f"'{response.move}' could not be parsed as a valid move. "
+                        f"Use SAN notation (e.g. e4, Nf3, cxd4, O-O) or UCI (e.g. e2e4, g1f3, a7a8q)."
+                    )
                 yield InvalidMoveEvent(
                     color=current_color,
                     attempted_move=response.move,
