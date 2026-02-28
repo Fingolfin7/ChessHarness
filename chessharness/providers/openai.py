@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import base64
 import logging
+from collections.abc import Callable, Awaitable
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, AuthenticationError as _OpenAIAuthError
 
 from chessharness.providers.base import LLMProvider, Message, ProviderError
 
@@ -67,15 +68,41 @@ class OpenAIProvider(LLMProvider):
         provider_label: str = "openai",
         default_headers: dict[str, str] | None = None,
         supports_vision_override: bool | None = None,
+        token_refresher: Callable[[bool], Awaitable[str]] | None = None,
     ) -> None:
         self._model = model
         self._provider_label = provider_label
         self._supports_vision_override = supports_vision_override
+        self._token_refresher = token_refresher
+        self._base_url = base_url
+        self._default_headers = default_headers
+        self._current_key = api_key
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
             default_headers=default_headers,
         )
+
+    def _rebuild_client(self, new_key: str) -> None:
+        """Recreate the AsyncOpenAI client with a refreshed token."""
+        self._current_key = new_key
+        self._client = AsyncOpenAI(
+            api_key=new_key,
+            base_url=self._base_url,
+            default_headers=self._default_headers,
+        )
+
+    async def _ensure_fresh_token(self, force: bool = False) -> None:
+        """Call token_refresher and rebuild the client if the token changed."""
+        if self._token_refresher is None:
+            return
+        new_key = await self._token_refresher(force)
+        if new_key and new_key != self._current_key:
+            logger.info(
+                "Token refreshed — rebuilding client [provider=%s]",
+                self._provider_label,
+            )
+            self._rebuild_client(new_key)
 
     @property
     def supports_vision(self) -> bool:
@@ -90,21 +117,28 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int = 5120,
         reasoning_effort: str | None = None,
     ) -> str:
+        await self._ensure_fresh_token()
         try:
-            api_messages = self._build_api_messages(messages)
-            request_kwargs: dict = {}
-            if reasoning_effort and _supports_reasoning_effort(self._model):
-                request_kwargs["reasoning_effort"] = reasoning_effort
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=api_messages,  # type: ignore[arg-type]
-                max_completion_tokens=max_tokens,
-                **request_kwargs,
-            )
-            return (response.choices[0].message.content or "").strip()
+            return await self._do_complete(messages, max_tokens=max_tokens, reasoning_effort=reasoning_effort)
+        except _OpenAIAuthError as exc:
+            if self._token_refresher is not None:
+                logger.warning(
+                    "Auth error on complete(), forcing token refresh [provider=%s model=%s]",
+                    self._provider_label, self._model,
+                )
+                await self._ensure_fresh_token(force=True)
+                try:
+                    return await self._do_complete(messages, max_tokens=max_tokens, reasoning_effort=reasoning_effort)
+                except Exception as exc2:
+                    logger.error("complete() failed after token refresh [provider=%s model=%s]: %s",
+                                 self._provider_label, self._model, exc2, exc_info=True)
+                    raise ProviderError(self._provider_label, str(exc2), cause=exc2) from exc2
+            logger.error("complete() failed [provider=%s model=%s]: %s",
+                         self._provider_label, self._model, exc, exc_info=True)
+            raise ProviderError(self._provider_label, str(exc), cause=exc) from exc
         except Exception as exc:
-            logger.error("complete() failed [provider=%s model=%s base_url=%s]: %s",
-                         self._provider_label, self._model, self._client.base_url, exc, exc_info=True)
+            logger.error("complete() failed [provider=%s model=%s]: %s",
+                         self._provider_label, self._model, exc, exc_info=True)
             raise ProviderError(self._provider_label, str(exc), cause=exc) from exc
 
     async def stream(
@@ -114,28 +148,73 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int = 5120,
         reasoning_effort: str | None = None,
     ):
-        try:
-            api_messages = self._build_api_messages(messages)
-            request_kwargs: dict = {}
-            if reasoning_effort and _supports_reasoning_effort(self._model):
-                request_kwargs["reasoning_effort"] = reasoning_effort
-            async with await self._client.chat.completions.create(
-                model=self._model,
-                messages=api_messages,  # type: ignore[arg-type]
-                max_completion_tokens=max_tokens,
-                stream=True,
-                **request_kwargs,
-            ) as stream:
-                async for chunk in stream:
-                    if not chunk.choices:
-                        continue
-                    delta = chunk.choices[0].delta.content
-                    if delta:
-                        yield delta
-        except Exception as exc:
-            logger.error("stream() failed [provider=%s model=%s base_url=%s]: %s",
-                         self._provider_label, self._model, self._client.base_url, exc, exc_info=True)
-            raise ProviderError(self._provider_label, str(exc), cause=exc) from exc
+        await self._ensure_fresh_token()
+        retried = False
+        while True:
+            try:
+                async for chunk in self._do_stream(messages, max_tokens=max_tokens, reasoning_effort=reasoning_effort):
+                    yield chunk
+                return
+            except _OpenAIAuthError as exc:
+                if not retried and self._token_refresher is not None:
+                    retried = True
+                    logger.warning(
+                        "Auth error on stream(), forcing token refresh [provider=%s model=%s]",
+                        self._provider_label, self._model,
+                    )
+                    await self._ensure_fresh_token(force=True)
+                    continue
+                logger.error("stream() failed [provider=%s model=%s]: %s",
+                             self._provider_label, self._model, exc, exc_info=True)
+                raise ProviderError(self._provider_label, str(exc), cause=exc) from exc
+            except Exception as exc:
+                logger.error("stream() failed [provider=%s model=%s]: %s",
+                             self._provider_label, self._model, exc, exc_info=True)
+                raise ProviderError(self._provider_label, str(exc), cause=exc) from exc
+
+    async def _do_complete(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int,
+        reasoning_effort: str | None,
+    ) -> str:
+        api_messages = self._build_api_messages(messages)
+        request_kwargs: dict = {}
+        if reasoning_effort and _supports_reasoning_effort(self._model):
+            request_kwargs["reasoning_effort"] = reasoning_effort
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=api_messages,  # type: ignore[arg-type]
+            max_completion_tokens=max_tokens,
+            **request_kwargs,
+        )
+        return (response.choices[0].message.content or "").strip()
+
+    async def _do_stream(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int,
+        reasoning_effort: str | None,
+    ):
+        api_messages = self._build_api_messages(messages)
+        request_kwargs: dict = {}
+        if reasoning_effort and _supports_reasoning_effort(self._model):
+            request_kwargs["reasoning_effort"] = reasoning_effort
+        async with await self._client.chat.completions.create(
+            model=self._model,
+            messages=api_messages,  # type: ignore[arg-type]
+            max_completion_tokens=max_tokens,
+            stream=True,
+            **request_kwargs,
+        ) as stream:
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
 
     def _build_api_messages(self, messages: list[Message]) -> list[dict]:
         result: list[dict] = []

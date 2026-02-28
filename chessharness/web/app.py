@@ -288,6 +288,21 @@ async def _providers_with_auth_overrides_async() -> dict[str, ProviderConfig]:
     return _providers_with_auth_overrides()
 
 
+def _make_copilot_token_refresher():
+    """Return an async callable that refreshes the Copilot token and returns it.
+
+    Passed to OpenAIProvider so it can proactively refresh before each request
+    and reactively force-refresh on 401 errors during a game.
+    """
+    async def _refresher(force: bool = False) -> str:
+        try:
+            await _ensure_copilot_chat_access_token(force_refresh=force)
+        except Exception as exc:
+            logger.warning("Copilot token refresh failed (force=%s): %s", force, exc)
+        return auth_tokens.get(_COPILOT_CHAT_PROVIDER, "")
+    return _refresher
+
+
 async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderConfig]) -> bool:
     """Verify a provider token is valid via a lightweight API call."""
     prov = providers_cfg.get(provider_name)
@@ -868,12 +883,15 @@ async def tournament_start(payload: dict):
             game_cfg = replace(game_cfg, **overrides)
     tournament_config = replace(config, game=game_cfg)
 
+    copilot_refresher = _make_copilot_token_refresher()
+
     def player_factory(participant: TournamentParticipant):
         provider = create_provider(
             participant.provider_name,
             participant.model.id,
             providers_cfg,
             supports_vision_override=participant.model.supports_vision,
+            token_refresher=copilot_refresher,
         )
         return create_player(
             participant.provider_name,
@@ -981,17 +999,20 @@ async def game_ws(ws: WebSocket) -> None:
         providers_cfg = await _providers_with_auth_overrides_async()
         white_model = _find_model_entry(providers_cfg, w["provider"], w["model_id"])
         black_model = _find_model_entry(providers_cfg, b["provider"], b["model_id"])
+        copilot_refresher = _make_copilot_token_refresher()
         white_provider = create_provider(
             w["provider"],
             w["model_id"],
             providers_cfg,
             supports_vision_override=(white_model.supports_vision if white_model else None),
+            token_refresher=copilot_refresher,
         )
         black_provider = create_provider(
             b["provider"],
             b["model_id"],
             providers_cfg,
             supports_vision_override=(black_model.supports_vision if black_model else None),
+            token_refresher=copilot_refresher,
         )
 
         white_player = create_player(

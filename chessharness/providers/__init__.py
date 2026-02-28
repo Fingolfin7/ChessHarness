@@ -12,6 +12,8 @@ To add a new provider:
 
 from __future__ import annotations
 
+from collections.abc import Callable, Awaitable
+
 from chessharness.config import ProviderConfig
 from chessharness.providers.base import LLMProvider, Message, ProviderError
 from chessharness.providers.openai import OpenAIProvider
@@ -43,6 +45,7 @@ def create_provider(
     model_id: str,
     providers_cfg: dict[str, ProviderConfig],
     supports_vision_override: bool | None = None,
+    token_refresher: Callable[[bool], Awaitable[str]] | None = None,
 ) -> LLMProvider:
     """Instantiate the correct LLMProvider for the given provider name and model ID."""
     prov_cfg = providers_cfg.get(provider_name)
@@ -81,6 +84,7 @@ def create_provider(
             if not prov_cfg.base_url:
                 raise ValueError(f"{provider_name} provider requires 'base_url' in config")
             default_headers = _copilot_chat_headers() if provider_name in {"copilot", "copilot_chat"} else None
+            is_copilot = provider_name in {"copilot", "copilot_chat"}
             return OpenAIProvider(
                 api_key=token,
                 model=model_id,
@@ -88,6 +92,7 @@ def create_provider(
                 provider_label=provider_name,
                 default_headers=default_headers,
                 supports_vision_override=supports_vision_override,
+                token_refresher=token_refresher if is_copilot else None,
             )
         case _:
             raise ValueError(
