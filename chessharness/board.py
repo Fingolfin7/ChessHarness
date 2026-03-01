@@ -50,7 +50,9 @@ class ChessBoard:
 
     @property
     def is_game_over(self) -> bool:
-        return self._board.is_game_over()
+        # Treat claimable draws (threefold repetition, fifty-move) as terminal
+        # for automated play where no external "claim draw" actor exists.
+        return self._board.is_game_over(claim_draw=True)
 
     def legal_moves_uci(self) -> list[str]:
         return [m.uci() for m in self._board.legal_moves]
@@ -134,7 +136,7 @@ class ChessBoard:
     # ------------------------------------------------------------------ #
 
     def game_over_reason(self) -> str:
-        outcome = self._board.outcome()
+        outcome = self._board.outcome(claim_draw=True)
         if outcome is None:
             return "unknown"
         match outcome.termination:
@@ -142,6 +144,8 @@ class ChessBoard:
                 return "checkmate"
             case chess.Termination.STALEMATE:
                 return "stalemate"
+            case chess.Termination.THREEFOLD_REPETITION:
+                return "threefold_repetition"
             case chess.Termination.FIFTY_MOVES:
                 return "fifty_move"
             case chess.Termination.INSUFFICIENT_MATERIAL:
@@ -150,13 +154,13 @@ class ChessBoard:
                 return "draw"
 
     def result(self) -> GameResult:
-        outcome = self._board.outcome()
+        outcome = self._board.outcome(claim_draw=True)
         if outcome is None:
             return "*"
         return outcome.result()  # type: ignore[return-value]
 
     def winner_color(self) -> Color | None:
-        outcome = self._board.outcome()
+        outcome = self._board.outcome(claim_draw=True)
         if outcome is None or outcome.winner is None:
             return None
         return "white" if outcome.winner == chess.WHITE else "black"

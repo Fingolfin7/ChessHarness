@@ -89,7 +89,12 @@ providers:
         supports_vision: true
 ```
 
-Additional providers (`copilot_chat`, `openrouter`) follow the same pattern — see `config.example.yaml` for full details.
+Additional providers (`openai_chatgpt` / Codex, `copilot_chat`, `openrouter`) follow the same pattern - see `config.example.yaml` for full details.
+
+Notes:
+- `max_output_tokens` is a per-move/per-response setting, not a full-game budget.
+- For `openai_chatgpt` (Codex endpoint), `max_output_tokens` may be ignored because some Codex deployments reject a max-token parameter.
+
 
 ---
 

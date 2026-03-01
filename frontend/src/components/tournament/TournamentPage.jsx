@@ -17,7 +17,7 @@ import BracketPanel from './BracketPanel.jsx'
 
 // ── Header ────────────────────────────────────────────────────────────────── //
 
-function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBracket, onRestart }) {
+function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBracket, onRestart, onStop }) {
   const navigate = useNavigate()
 
   const roundLabel = totalRounds
@@ -31,11 +31,6 @@ function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBra
     error: '✕ Error',
   }[status] || ''
 
-  const handleStop = async () => {
-    if (!confirm('Stop all tournament games?')) return
-    await fetch('/api/tournament/stop', { method: 'POST' })
-  }
-
   return (
     <header className="game-header">
       <span className="tc-round-label">{roundLabel}</span>
@@ -48,7 +43,7 @@ function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBra
         )}
         <button className="btn" onClick={onBracket}>Bracket</button>
         {status === 'running' && (
-          <button className="btn btn-stop" onClick={handleStop}>■ Stop</button>
+          <button className="btn btn-stop" onClick={onStop}>■ Stop</button>
         )}
         {(status === 'complete' || status === 'error') && (
           <button className="btn btn-rematch" onClick={onRestart}>↺ Restart</button>
@@ -228,6 +223,11 @@ export default function TournamentPage() {
   const [selectedMatchId, setSelectedMatchId] = useState(null)
   const [bracketOpen, setBracketOpen] = useState(false)
 
+  const handleStop = async () => {
+    if (!confirm('Stop all tournament games?')) return
+    await fetch('/api/tournament/stop', { method: 'POST' })
+  }
+
   const handleRestart = async () => {
     try {
       const res = await fetch('/api/tournament/restart', { method: 'POST' })
@@ -246,6 +246,7 @@ export default function TournamentPage() {
         matchId={selectedMatchId}
         matchInfo={matches[selectedMatchId]}
         onBack={() => setSelectedMatchId(null)}
+        onStop={handleStop}
       />
     )
   }
@@ -259,6 +260,7 @@ export default function TournamentPage() {
         connStatus={connStatus}
         onBracket={() => setBracketOpen(true)}
         onRestart={handleRestart}
+        onStop={handleStop}
       />
 
       {error && <div className="error-banner">{error}</div>}

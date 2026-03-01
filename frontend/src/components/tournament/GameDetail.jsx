@@ -20,7 +20,7 @@ function resultText(result) {
   return `Draw — ${result.reason.replace(/_/g, ' ')}`
 }
 
-export default function GameDetail({ matchId, matchInfo, onBack }) {
+export default function GameDetail({ matchId, matchInfo, onBack, onStop }) {
   const state = useGameSocket(matchId)
   const { players, fen, lastMove, turn, thinking, reasoning,
           moves, plies, invalidAttempt, result, error, phase, connStatus } = state
@@ -97,6 +97,7 @@ export default function GameDetail({ matchId, matchInfo, onBack }) {
             </span>
           )}
           <button className="btn" onClick={() => setFlipped(f => !f)} title="Flip board">⇅ Flip</button>
+          {!isOver && <button className="btn btn-stop" onClick={onStop}>Stop Tournament</button>}
         </div>
       </header>
 
@@ -164,3 +165,5 @@ export default function GameDetail({ matchId, matchInfo, onBack }) {
     </div>
   )
 }
+
+
