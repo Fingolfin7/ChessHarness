@@ -5,7 +5,7 @@
  * All WebSocket game state lives here.
  */
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ModelPicker from '../components/ModelPicker.jsx'
 import GameView from '../components/GameView.jsx'
@@ -44,6 +44,23 @@ function updateMoves(moves, event) {
 
 function applyEvent(state, event) {
   switch (event.type) {
+    case 'GameSnapshotEvent':
+      return {
+        ...INITIAL_STATE,
+        phase: event.phase ?? 'playing',
+        players: event.players ?? { white: null, black: null },
+        fen: event.fen ?? 'start',
+        lastMove: event.lastMove ?? null,
+        turn: event.turn ?? 'white',
+        thinking: event.thinking ?? false,
+        reasoning: event.reasoning ?? { white: '', black: '' },
+        moves: event.moves ?? [],
+        plies: event.plies ?? [],
+        invalidAttempt: event.invalidAttempt ?? null,
+        result: event.result ?? null,
+        error: event.error ?? null,
+      }
+
     case 'GameStartEvent':
       return {
         ...freshGameState(),
@@ -150,7 +167,19 @@ export default function GamePage() {
   const [state, setState] = useState(INITIAL_STATE)
   const wsRef = useRef(null)
   const sessionRef = useRef(0)
+  const stateRef = useRef(INITIAL_STATE)
   const lastGameRef = useRef(null)  // { white, black, settings } for rematch
+  const reconnectRef = useRef({ timer: null, delayMs: 1000, enabled: false })
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  useEffect(() => () => {
+    reconnectRef.current.enabled = false
+    if (reconnectRef.current.timer) clearTimeout(reconnectRef.current.timer)
+    wsRef.current?.close()
+  }, [])
 
   const startGame = useCallback((white, black, settings) => {
     lastGameRef.current = { white, black, settings }
@@ -159,24 +188,51 @@ export default function GamePage() {
     }
     sessionRef.current += 1
     const thisSession = sessionRef.current
+    reconnectRef.current.enabled = true
+    reconnectRef.current.delayMs = 1000
+    if (reconnectRef.current.timer) clearTimeout(reconnectRef.current.timer)
     setState(s => ({ ...s, error: null }))
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${location.host}/ws/game`)
-    wsRef.current = ws
 
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'start', white, black, settings }))
-    ws.onmessage = (e) => {
-      if (sessionRef.current !== thisSession || wsRef.current !== ws) return
-      setState(s => applyEvent(s, JSON.parse(e.data)))
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const url = `${protocol}//${location.host}/ws/game`
+    const startPayload = { type: 'start', white, black, settings }
+
+    const connect = (mode) => {
+      const ws = new WebSocket(url)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        if (sessionRef.current !== thisSession || wsRef.current !== ws) return
+        reconnectRef.current.delayMs = 1000
+        ws.send(JSON.stringify(mode === 'start' ? startPayload : { type: 'resume' }))
+      }
+
+      ws.onmessage = (e) => {
+        if (sessionRef.current !== thisSession || wsRef.current !== ws) return
+        setState(s => applyEvent(s, JSON.parse(e.data)))
+      }
+
+      ws.onerror = () => {
+        if (sessionRef.current !== thisSession || wsRef.current !== ws) return
+        setState(s => ({ ...s, error: 'WebSocket connection error.', thinking: false }))
+      }
+
+      ws.onclose = () => {
+        if (sessionRef.current !== thisSession || wsRef.current !== ws) return
+        if (!reconnectRef.current.enabled) return
+        if (stateRef.current.phase !== 'playing') {
+          setState(s => s.phase === 'playing' ? { ...s, phase: 'over' } : s)
+          return
+        }
+        const delay = reconnectRef.current.delayMs
+        reconnectRef.current.timer = setTimeout(() => {
+          reconnectRef.current.delayMs = Math.min(reconnectRef.current.delayMs * 2, 30000)
+          connect('resume')
+        }, delay)
+      }
     }
-    ws.onerror = () => {
-      if (sessionRef.current !== thisSession || wsRef.current !== ws) return
-      setState(s => ({ ...s, error: 'WebSocket connection error.', thinking: false }))
-    }
-    ws.onclose = () => {
-      if (sessionRef.current !== thisSession || wsRef.current !== ws) return
-      setState(s => s.phase === 'playing' ? { ...s, phase: 'over' } : s)
-    }
+
+    connect('start')
   }, [])
 
   const stopGame = useCallback(() => {
@@ -185,6 +241,8 @@ export default function GamePage() {
 
   const newGame = useCallback(() => {
     sessionRef.current += 1
+    reconnectRef.current.enabled = false
+    if (reconnectRef.current.timer) clearTimeout(reconnectRef.current.timer)
     wsRef.current?.close()
     wsRef.current = null
     setState(INITIAL_STATE)

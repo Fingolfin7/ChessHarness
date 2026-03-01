@@ -22,6 +22,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import deque
+from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -102,6 +103,7 @@ _COPILOT_CHAT_API_BASE = "https://api.githubcopilot.com"
 _OPENAI_CHATGPT_API_BASE = "https://chatgpt.com/backend-api/codex"
 _MAX_TOURNAMENT_REPLAY_EVENTS = 5000
 _MAX_GAME_REPLAY_EVENTS = 2000
+_MAX_SINGLE_GAME_REPLAY_EVENTS = 2000
 _MAX_SUBSCRIBER_QUEUE = 500
 _CODEX_AUTH_PATH = Path.home() / ".codex" / "auth.json"
 
@@ -919,9 +921,326 @@ class _TournamentBroadcaster:
         self._game_subs: dict[str, list[asyncio.Queue]] = {}
         self._game_log: dict[str, deque[dict]] = {}   # match_id -> serialised events (bounded)
         self._tournament_log: deque[dict] = deque(maxlen=_MAX_TOURNAMENT_REPLAY_EVENTS)
+        self._tournament_state: dict = self._initial_tournament_state()
+        self._game_state: dict[str, dict] = {}
         self._pgns: list[str] = []                    # PGN for each completed game
         self.status: dict = {"state": "idle"}
         self._task: asyncio.Task | None = None
+
+    @staticmethod
+    def _initial_tournament_state() -> dict:
+        return {
+            "status": "idle",
+            "tournamentType": None,
+            "participantNames": [],
+            "totalRounds": 0,
+            "currentRound": 0,
+            "pairings": [],
+            "matches": {},
+            "standings": [],
+            "winner": None,
+            "error": None,
+        }
+
+    @staticmethod
+    def _initial_match_state(match_id: str | None = None) -> dict:
+        return {
+            "matchId": match_id,
+            "whiteName": None,
+            "blackName": None,
+            "roundNum": None,
+            "gameNum": 1,
+            "status": "pending",
+            "result": None,
+            "gameOverReason": None,
+            "advancingName": None,
+            "fen": "start",
+            "lastMove": None,
+            "turn": "white",
+            "thinking": False,
+            "plies": [],
+            "moves": [],
+        }
+
+    @staticmethod
+    def _initial_game_state() -> dict:
+        return {
+            "phase": "playing",
+            "players": {"white": None, "black": None},
+            "fen": "start",
+            "lastMove": None,
+            "turn": "white",
+            "thinking": False,
+            "reasoning": {"white": "", "black": ""},
+            "moves": [],
+            "plies": [],
+            "invalidAttempt": None,
+            "result": None,
+            "error": None,
+        }
+
+    @staticmethod
+    def _update_moves(moves: list[dict], event: dict) -> list[dict]:
+        color = event.get("color")
+        move_number = event.get("move_number")
+        if color not in {"white", "black"} or not isinstance(move_number, int):
+            return moves
+        entry = {"san": event.get("move_san"), "reasoning": event.get("reasoning", "")}
+        idx = next((i for i, m in enumerate(moves) if m.get("number") == move_number), -1)
+        if idx >= 0:
+            updated = list(moves)
+            merged = dict(updated[idx])
+            merged[color] = entry
+            updated[idx] = merged
+            return updated
+        return [*moves, {"number": move_number, color: entry}]
+
+    @staticmethod
+    def _standings_rows(raw_rows: list[dict] | None) -> list[dict]:
+        rows = []
+        for entry in raw_rows or []:
+            participant = entry.get("participant") or {}
+            model = participant.get("model") or {}
+            rows.append(
+                {
+                    "name": model.get("name") or participant.get("display_name") or "",
+                    "wins": entry.get("wins"),
+                    "draws": entry.get("draws"),
+                    "losses": entry.get("losses"),
+                    "points": entry.get("points"),
+                }
+            )
+        return rows
+
+    def _apply_match_game_event(self, match_id: str, game_event: dict) -> None:
+        matches = self._tournament_state["matches"]
+        match_state = dict(matches.get(match_id) or self._initial_match_state(match_id))
+        game_state = dict(self._game_state.get(match_id) or self._initial_game_state())
+        event_type = game_event.get("type")
+
+        if event_type == "GameStartEvent":
+            white_name = game_event.get("white_name")
+            black_name = game_event.get("black_name")
+            start_fen = game_event.get("starting_fen") or "start"
+            match_state.update(
+                {
+                    "status": "live",
+                    "whiteName": white_name,
+                    "blackName": black_name,
+                    "fen": start_fen,
+                    "lastMove": None,
+                    "plies": [],
+                    "moves": [],
+                    "thinking": False,
+                }
+            )
+            game_state = {
+                **self._initial_game_state(),
+                "phase": "playing",
+                "fen": start_fen,
+                "players": {
+                    "white": {"name": white_name},
+                    "black": {"name": black_name},
+                },
+            }
+        elif event_type == "TurnStartEvent":
+            color = game_event.get("color")
+            if color in {"white", "black"}:
+                match_state["turn"] = color
+                game_state["turn"] = color
+        elif event_type == "MoveRequestedEvent":
+            color = game_event.get("color")
+            match_state["thinking"] = True
+            game_state["thinking"] = True
+            game_state["invalidAttempt"] = None
+            if color in {"white", "black"}:
+                reasoning = dict(game_state.get("reasoning") or {"white": "", "black": ""})
+                reasoning[color] = ""
+                game_state["reasoning"] = reasoning
+        elif event_type == "ReasoningChunkEvent":
+            color = game_event.get("color")
+            if color in {"white", "black"}:
+                reasoning = dict(game_state.get("reasoning") or {"white": "", "black": ""})
+                reasoning[color] = f"{reasoning.get(color, '')}{game_event.get('chunk', '')}"
+                game_state["reasoning"] = reasoning
+        elif event_type == "InvalidMoveEvent":
+            match_state["thinking"] = False
+            game_state["thinking"] = False
+            game_state["invalidAttempt"] = {
+                "color": game_event.get("color"),
+                "move": game_event.get("attempted_move"),
+                "error": game_event.get("error"),
+                "attempt": game_event.get("attempt_num"),
+            }
+        elif event_type == "MoveAppliedEvent":
+            fen_after = game_event.get("fen_after")
+            move_uci = game_event.get("move_uci") or ""
+            last_move = None
+            if len(move_uci) >= 4:
+                last_move = {"from": move_uci[:2], "to": move_uci[2:4]}
+
+            match_state["fen"] = fen_after
+            match_state["lastMove"] = last_move
+            match_state["thinking"] = False
+            match_state["moves"] = self._update_moves(match_state.get("moves", []), game_event)
+            match_state["plies"] = [
+                *match_state.get("plies", []),
+                {
+                    "color": game_event.get("color"),
+                    "san": game_event.get("move_san"),
+                    "reasoning": game_event.get("reasoning", ""),
+                    "fen_after": fen_after,
+                    "from": move_uci[:2] if len(move_uci) >= 2 else None,
+                    "to": move_uci[2:4] if len(move_uci) >= 4 else None,
+                    "moveNumber": game_event.get("move_number"),
+                },
+            ]
+
+            reasoning = dict(game_state.get("reasoning") or {"white": "", "black": ""})
+            color = game_event.get("color")
+            if color in {"white", "black"}:
+                reasoning[color] = game_event.get("reasoning", "")
+            game_state["fen"] = fen_after
+            game_state["lastMove"] = last_move
+            game_state["thinking"] = False
+            game_state["invalidAttempt"] = None
+            game_state["reasoning"] = reasoning
+            game_state["moves"] = self._update_moves(game_state.get("moves", []), game_event)
+            game_state["plies"] = [
+                *game_state.get("plies", []),
+                {
+                    "color": game_event.get("color"),
+                    "san": game_event.get("move_san"),
+                    "reasoning": game_event.get("reasoning", ""),
+                    "fen_after": fen_after,
+                    "from": move_uci[:2] if len(move_uci) >= 2 else None,
+                    "to": move_uci[2:4] if len(move_uci) >= 4 else None,
+                    "moveNumber": game_event.get("move_number"),
+                },
+            ]
+        elif event_type == "GameOverEvent":
+            match_state["thinking"] = False
+            match_state["result"] = game_event.get("result")
+            match_state["gameOverReason"] = game_event.get("reason")
+            game_state["phase"] = "over"
+            game_state["thinking"] = False
+            game_state["result"] = {
+                "result": game_event.get("result"),
+                "reason": game_event.get("reason"),
+                "winner": game_event.get("winner_name"),
+                "pgn": game_event.get("pgn"),
+            }
+
+        matches[match_id] = match_state
+        self._game_state[match_id] = game_state
+
+    def _apply_payload_to_state(self, payload: dict) -> None:
+        event_type = payload.get("type")
+        if event_type == "TournamentStartEvent":
+            self._tournament_state = {
+                **self._initial_tournament_state(),
+                "status": "running",
+                "tournamentType": payload.get("tournament_type"),
+                "participantNames": payload.get("participant_names") or [],
+                "totalRounds": payload.get("total_rounds") or 0,
+                "error": None,
+            }
+            return
+
+        if event_type == "RoundStartEvent":
+            pairings = [
+                {"matchId": m, "whiteName": w, "blackName": b}
+                for m, w, b in (payload.get("pairings") or [])
+            ]
+            self._tournament_state["currentRound"] = payload.get("round_num") or 0
+            self._tournament_state["pairings"] = pairings
+            matches = dict(self._tournament_state["matches"])
+            for pairing in pairings:
+                match_id = pairing["matchId"]
+                matches[match_id] = {
+                    **self._initial_match_state(match_id),
+                    "whiteName": pairing["whiteName"],
+                    "blackName": pairing["blackName"],
+                    "roundNum": payload.get("round_num"),
+                }
+            self._tournament_state["matches"] = matches
+            return
+
+        if event_type == "MatchStartEvent":
+            match_id = payload.get("match_id")
+            if not match_id:
+                return
+            matches = dict(self._tournament_state["matches"])
+            prev = dict(matches.get(match_id) or self._initial_match_state(match_id))
+            prev.update(
+                {
+                    "matchId": match_id,
+                    "whiteName": payload.get("white_name"),
+                    "blackName": payload.get("black_name"),
+                    "roundNum": payload.get("round_num"),
+                    "gameNum": payload.get("game_num") or 1,
+                    "status": "live",
+                }
+            )
+            matches[match_id] = prev
+            self._tournament_state["matches"] = matches
+            return
+
+        if event_type == "MatchGameEvent":
+            match_id = payload.get("match_id")
+            game_event = payload.get("game_event")
+            if isinstance(match_id, str) and isinstance(game_event, dict):
+                self._apply_match_game_event(match_id, game_event)
+            return
+
+        if event_type == "MatchCompleteEvent":
+            match_id = payload.get("match_id")
+            if not match_id:
+                return
+            matches = dict(self._tournament_state["matches"])
+            prev = dict(matches.get(match_id) or self._initial_match_state(match_id))
+            result = payload.get("result") or {}
+            prev.update(
+                {
+                    "status": "complete",
+                    "result": result.get("game_result"),
+                    "advancingName": payload.get("advancing_name"),
+                }
+            )
+            matches[match_id] = prev
+            self._tournament_state["matches"] = matches
+            return
+
+        if event_type == "RoundCompleteEvent":
+            self._tournament_state["standings"] = self._standings_rows(payload.get("standings"))
+            return
+
+        if event_type == "TournamentCompleteEvent":
+            self._tournament_state["status"] = "complete"
+            self._tournament_state["winner"] = payload.get("winner_name")
+            self._tournament_state["standings"] = self._standings_rows(payload.get("final_standings"))
+            return
+
+        if event_type == "error":
+            self._tournament_state["status"] = "error"
+            self._tournament_state["error"] = payload.get("message")
+            return
+
+    def replay_has_tournament_root(self) -> bool:
+        return bool(self._tournament_log) and self._tournament_log[0].get("type") == "TournamentStartEvent"
+
+    def replay_has_game_root(self, match_id: str) -> bool:
+        log = self._game_log.get(match_id)
+        return bool(log) and log[0].get("type") == "GameStartEvent"
+
+    def tournament_snapshot_payload(self) -> dict:
+        return {"type": "TournamentSnapshotEvent", **deepcopy(self._tournament_state)}
+
+    def game_snapshot_payload(self, match_id: str) -> dict | None:
+        state = self._game_state.get(match_id)
+        if state is None:
+            return None
+        return {"type": "GameSnapshotEvent", **deepcopy(state)}
 
     # ── Subscriptions ────────────────────────────────────────────────── #
 
@@ -979,6 +1298,7 @@ class _TournamentBroadcaster:
             return
 
     async def _broadcast_all(self, payload: dict) -> None:
+        self._apply_payload_to_state(payload)
         self._tournament_log.append(payload)
         for q in list(self._all_subs):
             self._enqueue_latest(q, payload)
@@ -1004,6 +1324,8 @@ class _TournamentBroadcaster:
             raise RuntimeError("A tournament is already running.")
         self._tournament_log.clear()
         self._game_log.clear()
+        self._tournament_state = self._initial_tournament_state()
+        self._game_state.clear()
         self._pgns.clear()
         self.status = {"state": "running", "participants": [p.display_name for p in participants]}
         self._task = asyncio.create_task(
@@ -1222,9 +1544,14 @@ async def tournament_ws(ws: WebSocket) -> None:
     await ws.accept()
     q = _tournament_broadcaster.subscribe()
     try:
-        # Send replay log first so the client can reconstruct current state
-        for past_event in _tournament_broadcaster.replay_log():
-            await ws.send_text(json.dumps(past_event, default=str))
+        # If replay was truncated past TournamentStartEvent, bootstrap from snapshot.
+        if _tournament_broadcaster.replay_has_tournament_root():
+            for past_event in _tournament_broadcaster.replay_log():
+                await ws.send_text(json.dumps(past_event, default=str))
+        else:
+            await ws.send_text(
+                json.dumps(_tournament_broadcaster.tournament_snapshot_payload(), default=str)
+            )
 
         # Then stream live events
         while True:
@@ -1245,8 +1572,13 @@ async def tournament_game_ws(ws: WebSocket, match_id: str) -> None:
     await ws.accept()
     q = _tournament_broadcaster.subscribe_game(match_id)
     try:
-        for past_event in _tournament_broadcaster.game_replay_log(match_id):
-            await ws.send_text(json.dumps(past_event, default=str))
+        if _tournament_broadcaster.replay_has_game_root(match_id):
+            for past_event in _tournament_broadcaster.game_replay_log(match_id):
+                await ws.send_text(json.dumps(past_event, default=str))
+        else:
+            snapshot = _tournament_broadcaster.game_snapshot_payload(match_id)
+            if snapshot is not None:
+                await ws.send_text(json.dumps(snapshot, default=str))
 
         while True:
             payload = await q.get()
@@ -1261,134 +1593,344 @@ async def tournament_game_ws(ws: WebSocket, match_id: str) -> None:
 # WebSocket game                                                                #
 # --------------------------------------------------------------------------- #
 
+def _apply_ui_game_settings(ui_settings: dict) -> object:
+    game_cfg = config.game
+    if ui_settings:
+        overrides: dict = {}
+        if "max_retries" in ui_settings:
+            overrides["max_retries"] = max(1, int(ui_settings["max_retries"]))
+        if "show_legal_moves" in ui_settings:
+            overrides["show_legal_moves"] = bool(ui_settings["show_legal_moves"])
+        if ui_settings.get("board_input") in ("text", "image"):
+            overrides["board_input"] = ui_settings["board_input"]
+        if "annotate_pgn" in ui_settings:
+            overrides["annotate_pgn"] = bool(ui_settings["annotate_pgn"])
+        if "max_output_tokens" in ui_settings:
+            overrides["max_output_tokens"] = max(1, int(ui_settings["max_output_tokens"]))
+        if "reasoning_effort" in ui_settings:
+            effort = ui_settings["reasoning_effort"]
+            if effort in ("low", "medium", "high", None, "", "default", "auto", "none"):
+                overrides["reasoning_effort"] = effort if effort in ("low", "medium", "high") else None
+        if "starting_fen" in ui_settings:
+            fen = (ui_settings["starting_fen"] or "").strip()
+            overrides["starting_fen"] = fen if fen else None
+        if overrides:
+            game_cfg = replace(game_cfg, **overrides)
+    return game_cfg
+
+
+async def _build_single_game_players(start_payload: dict):
+    w = start_payload["white"]
+    b = start_payload["black"]
+    ui_settings = start_payload.get("settings") or {}
+    game_cfg = _apply_ui_game_settings(ui_settings)
+    session_config = replace(config, game=game_cfg)
+
+    providers_cfg = await _providers_with_auth_overrides_async()
+    white_model = _find_model_entry(providers_cfg, w["provider"], w["model_id"])
+    black_model = _find_model_entry(providers_cfg, b["provider"], b["model_id"])
+    copilot_refresher = _make_copilot_token_refresher()
+    openai_chatgpt_refresher = _make_openai_chatgpt_token_refresher()
+
+    def _token_refresher_for(provider_name: str):
+        if provider_name == _COPILOT_CHAT_PROVIDER:
+            return copilot_refresher
+        if provider_name == _OPENAI_CHATGPT_PROVIDER:
+            return openai_chatgpt_refresher
+        return None
+
+    white_provider = create_provider(
+        w["provider"],
+        w["model_id"],
+        providers_cfg,
+        supports_vision_override=(white_model.supports_vision if white_model else None),
+        token_refresher=_token_refresher_for(w["provider"]),
+    )
+    black_provider = create_provider(
+        b["provider"],
+        b["model_id"],
+        providers_cfg,
+        supports_vision_override=(black_model.supports_vision if black_model else None),
+        token_refresher=_token_refresher_for(b["provider"]),
+    )
+
+    white_player = create_player(
+        w["provider"],
+        w["name"],
+        white_provider,
+        session_config.game.show_legal_moves,
+        session_config.game.move_timeout,
+        session_config.game.max_output_tokens,
+        session_config.game.reasoning_effort,
+    )
+    black_player = create_player(
+        b["provider"],
+        b["name"],
+        black_provider,
+        session_config.game.show_legal_moves,
+        session_config.game.move_timeout,
+        session_config.game.max_output_tokens,
+        session_config.game.reasoning_effort,
+    )
+
+    game_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = Path("./logs")
+    for player, color in ((white_player, "white"), (black_player, "black")):
+        if isinstance(player, LLMPlayer):
+            player._logger = ConversationLogger(
+                log_dir=log_dir,
+                game_id=game_id,
+                player_name=player.name,
+                color=color,
+            )
+
+    return session_config, white_player, black_player
+
+
+class _SingleGameBroadcaster:
+    def __init__(self) -> None:
+        self._subs: list[asyncio.Queue] = []
+        self._log: deque[dict] = deque(maxlen=_MAX_SINGLE_GAME_REPLAY_EVENTS)
+        self._state: dict = self._initial_state()
+        self._task: asyncio.Task | None = None
+        self._stop_event: asyncio.Event | None = None
+
+    @staticmethod
+    def _initial_state() -> dict:
+        return {
+            "phase": "setup",
+            "players": {"white": None, "black": None},
+            "fen": "start",
+            "lastMove": None,
+            "turn": "white",
+            "thinking": False,
+            "reasoning": {"white": "", "black": ""},
+            "moves": [],
+            "plies": [],
+            "invalidAttempt": None,
+            "result": None,
+            "error": None,
+        }
+
+    def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=_MAX_SUBSCRIBER_QUEUE)
+        self._subs.append(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        try:
+            self._subs.remove(q)
+        except ValueError:
+            pass
+
+    def replay_log(self) -> list[dict]:
+        return list(self._log)
+
+    def replay_has_root(self) -> bool:
+        return bool(self._log) and self._log[0].get("type") == "GameStartEvent"
+
+    def snapshot_payload(self) -> dict:
+        return {"type": "GameSnapshotEvent", **deepcopy(self._state)}
+
+    def _update_moves(self, moves: list[dict], event: dict) -> list[dict]:
+        color = event.get("color")
+        move_number = event.get("move_number")
+        if color not in {"white", "black"} or not isinstance(move_number, int):
+            return moves
+        entry = {"san": event.get("move_san"), "reasoning": event.get("reasoning", "")}
+        idx = next((i for i, m in enumerate(moves) if m.get("number") == move_number), -1)
+        if idx >= 0:
+            updated = list(moves)
+            merged = dict(updated[idx])
+            merged[color] = entry
+            updated[idx] = merged
+            return updated
+        return [*moves, {"number": move_number, color: entry}]
+
+    def _apply_event(self, payload: dict) -> None:
+        event_type = payload.get("type")
+        if event_type == "GameStartEvent":
+            self._state = {
+                **self._initial_state(),
+                "phase": "playing",
+                "fen": payload.get("starting_fen") or "start",
+                "players": {
+                    "white": {"name": payload.get("white_name")},
+                    "black": {"name": payload.get("black_name")},
+                },
+            }
+            return
+        if event_type == "TurnStartEvent":
+            if payload.get("color") in {"white", "black"}:
+                self._state["turn"] = payload["color"]
+            return
+        if event_type == "MoveRequestedEvent":
+            color = payload.get("color")
+            self._state["thinking"] = True
+            self._state["invalidAttempt"] = None
+            if color in {"white", "black"}:
+                reasoning = dict(self._state.get("reasoning") or {"white": "", "black": ""})
+                reasoning[color] = ""
+                self._state["reasoning"] = reasoning
+            return
+        if event_type == "ReasoningChunkEvent":
+            color = payload.get("color")
+            if color in {"white", "black"}:
+                reasoning = dict(self._state.get("reasoning") or {"white": "", "black": ""})
+                reasoning[color] = f"{reasoning.get(color, '')}{payload.get('chunk', '')}"
+                self._state["reasoning"] = reasoning
+            return
+        if event_type == "InvalidMoveEvent":
+            self._state["thinking"] = False
+            self._state["invalidAttempt"] = {
+                "color": payload.get("color"),
+                "move": payload.get("attempted_move"),
+                "error": payload.get("error"),
+                "attempt": payload.get("attempt_num"),
+            }
+            return
+        if event_type == "MoveAppliedEvent":
+            move_uci = payload.get("move_uci") or ""
+            last_move = {"from": move_uci[:2], "to": move_uci[2:4]} if len(move_uci) >= 4 else None
+            self._state["fen"] = payload.get("fen_after")
+            self._state["lastMove"] = last_move
+            self._state["thinking"] = False
+            self._state["invalidAttempt"] = None
+            self._state["moves"] = self._update_moves(self._state.get("moves", []), payload)
+            self._state["plies"] = [
+                *self._state.get("plies", []),
+                {
+                    "color": payload.get("color"),
+                    "san": payload.get("move_san"),
+                    "reasoning": payload.get("reasoning", ""),
+                    "fen_after": payload.get("fen_after"),
+                    "from": move_uci[:2] if len(move_uci) >= 2 else None,
+                    "to": move_uci[2:4] if len(move_uci) >= 4 else None,
+                    "moveNumber": payload.get("move_number"),
+                },
+            ]
+            reasoning = dict(self._state.get("reasoning") or {"white": "", "black": ""})
+            color = payload.get("color")
+            if color in {"white", "black"}:
+                reasoning[color] = payload.get("reasoning", "")
+            self._state["reasoning"] = reasoning
+            return
+        if event_type == "GameOverEvent":
+            self._state["phase"] = "over"
+            self._state["thinking"] = False
+            self._state["result"] = {
+                "result": payload.get("result"),
+                "reason": payload.get("reason"),
+                "winner": payload.get("winner_name"),
+                "pgn": payload.get("pgn"),
+            }
+            return
+        if event_type == "error":
+            self._state["error"] = payload.get("message")
+            self._state["thinking"] = False
+            return
+
+    @staticmethod
+    def _enqueue_latest(q: asyncio.Queue, payload: dict) -> None:
+        try:
+            q.put_nowait(payload)
+            return
+        except asyncio.QueueFull:
+            pass
+        try:
+            q.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            return
+
+    async def _broadcast(self, payload: dict) -> None:
+        self._apply_event(payload)
+        self._log.append(payload)
+        for q in list(self._subs):
+            self._enqueue_latest(q, payload)
+
+    def start(self, start_payload: dict) -> None:
+        if self._task and not self._task.done():
+            raise RuntimeError("A game is already running.")
+        self._log.clear()
+        self._state = {**self._initial_state(), "phase": "playing", "error": None}
+        self._stop_event = asyncio.Event()
+        self._task = asyncio.create_task(self._run(start_payload, self._stop_event))
+
+    def stop(self) -> bool:
+        if self._stop_event is not None and self._task and not self._task.done():
+            self._stop_event.set()
+            return True
+        return False
+
+    async def _run(self, start_payload: dict, stop_event: asyncio.Event) -> None:
+        try:
+            session_config, white_player, black_player = await _build_single_game_players(start_payload)
+            async for event in run_game(session_config, white_player, black_player, stop_event):
+                payload = {"type": type(event).__name__, **dataclasses.asdict(event)}
+                await self._broadcast(payload)
+        except Exception as exc:
+            logger.error("Single game error: %s", exc, exc_info=True)
+            await self._broadcast({"type": "error", "message": str(exc)})
+
+
+_single_game_broadcaster = _SingleGameBroadcaster()
+
+
 @app.websocket("/ws/game")
 async def game_ws(ws: WebSocket) -> None:
     await ws.accept()
+    q = _single_game_broadcaster.subscribe()
 
     try:
-        # â”€â”€ First message: { type: "start", white: {...}, black: {...}, settings: {...} } â”€â”€ #
-        start = await ws.receive_json()
+        first = await ws.receive_json()
+        first_type = first.get("type")
 
-        w = start["white"]
-        b = start["black"]
-
-        # Apply per-game settings overrides sent from the UI
-        ui_settings = start.get("settings") or {}
-        game_cfg = config.game
-        if ui_settings:
-            overrides: dict = {}
-            if "max_retries" in ui_settings:
-                overrides["max_retries"] = max(1, int(ui_settings["max_retries"]))
-            if "show_legal_moves" in ui_settings:
-                overrides["show_legal_moves"] = bool(ui_settings["show_legal_moves"])
-            if ui_settings.get("board_input") in ("text", "image"):
-                overrides["board_input"] = ui_settings["board_input"]
-            if "annotate_pgn" in ui_settings:
-                overrides["annotate_pgn"] = bool(ui_settings["annotate_pgn"])
-            if "max_output_tokens" in ui_settings:
-                overrides["max_output_tokens"] = max(1, int(ui_settings["max_output_tokens"]))
-            if "reasoning_effort" in ui_settings:
-                effort = ui_settings["reasoning_effort"]
-                if effort in ("low", "medium", "high", None, "", "default", "auto", "none"):
-                    overrides["reasoning_effort"] = (
-                        effort if effort in ("low", "medium", "high") else None
-                    )
-            if "starting_fen" in ui_settings:
-                fen = (ui_settings["starting_fen"] or "").strip()
-                overrides["starting_fen"] = fen if fen else None
-            if overrides:
-                game_cfg = replace(game_cfg, **overrides)
-        session_config = replace(config, game=game_cfg)
-
-        providers_cfg = await _providers_with_auth_overrides_async()
-        white_model = _find_model_entry(providers_cfg, w["provider"], w["model_id"])
-        black_model = _find_model_entry(providers_cfg, b["provider"], b["model_id"])
-        copilot_refresher = _make_copilot_token_refresher()
-        openai_chatgpt_refresher = _make_openai_chatgpt_token_refresher()
-
-        def _token_refresher_for(provider_name: str):
-            if provider_name == _COPILOT_CHAT_PROVIDER:
-                return copilot_refresher
-            if provider_name == _OPENAI_CHATGPT_PROVIDER:
-                return openai_chatgpt_refresher
-            return None
-
-        white_provider = create_provider(
-            w["provider"],
-            w["model_id"],
-            providers_cfg,
-            supports_vision_override=(white_model.supports_vision if white_model else None),
-            token_refresher=_token_refresher_for(w["provider"]),
-        )
-        black_provider = create_provider(
-            b["provider"],
-            b["model_id"],
-            providers_cfg,
-            supports_vision_override=(black_model.supports_vision if black_model else None),
-            token_refresher=_token_refresher_for(b["provider"]),
-        )
-
-        white_player = create_player(
-            w["provider"],
-            w["name"],
-            white_provider,
-            session_config.game.show_legal_moves,
-            session_config.game.move_timeout,
-            session_config.game.max_output_tokens,
-            session_config.game.reasoning_effort,
-        )
-        black_player = create_player(
-            b["provider"],
-            b["name"],
-            black_provider,
-            session_config.game.show_legal_moves,
-            session_config.game.move_timeout,
-            session_config.game.max_output_tokens,
-            session_config.game.reasoning_effort,
-        )
-
-        # Attach per-player loggers
-        game_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_dir = Path("./logs")
-        for player, color in ((white_player, "white"), (black_player, "black")):
-            if isinstance(player, LLMPlayer):
-                player._logger = ConversationLogger(
-                    log_dir=log_dir,
-                    game_id=game_id,
-                    player_name=player.name,
-                    color=color,
-                )
-
-        stop_event = asyncio.Event()
-
-        async def _game_loop() -> None:
+        if first_type == "start":
             try:
-                async for event in run_game(
-                    session_config, white_player, black_player, stop_event
-                ):
-                    await ws.send_text(
-                        _to_json({"type": type(event).__name__, **dataclasses.asdict(event)})
-                    )
-            except WebSocketDisconnect:
-                stop_event.set()
+                _single_game_broadcaster.start(first)
+            except RuntimeError as exc:
+                await ws.send_text(_to_json({"type": "error", "message": str(exc)}))
+        elif first_type == "stop":
+            _single_game_broadcaster.stop()
+        elif first_type != "resume":
+            await ws.send_text(_to_json({"type": "error", "message": "Unsupported websocket command."}))
+
+        # Reconnect bootstrap: replay if intact, else send snapshot.
+        if first_type != "start" or _single_game_broadcaster.replay_log():
+            if _single_game_broadcaster.replay_has_root():
+                for past_event in _single_game_broadcaster.replay_log():
+                    await ws.send_text(json.dumps(past_event, default=str))
+            else:
+                snap = _single_game_broadcaster.snapshot_payload()
+                if snap.get("phase") != "setup":
+                    await ws.send_text(json.dumps(snap, default=str))
+
+        async def _send_loop() -> None:
+            while True:
+                payload = await q.get()
+                await ws.send_text(json.dumps(payload, default=str))
 
         async def _receive_loop() -> None:
-            try:
-                while True:
-                    msg = await ws.receive_json()
-                    if msg.get("type") == "stop":
-                        stop_event.set()
-                        break
-            except (WebSocketDisconnect, RuntimeError):
-                stop_event.set()
+            while True:
+                msg = await ws.receive_json()
+                msg_type = msg.get("type")
+                if msg_type == "stop":
+                    _single_game_broadcaster.stop()
+                elif msg_type == "start":
+                    try:
+                        _single_game_broadcaster.start(msg)
+                    except RuntimeError as exc:
+                        await ws.send_text(_to_json({"type": "error", "message": str(exc)}))
 
-        # Run game and receive concurrently; cancel whichever is still running
-        # when the other finishes (e.g. game over â†’ no need to keep listening).
-        game_task = asyncio.create_task(_game_loop())
+        send_task = asyncio.create_task(_send_loop())
         recv_task = asyncio.create_task(_receive_loop())
 
         done, pending = await asyncio.wait(
-            {game_task, recv_task}, return_when=asyncio.FIRST_COMPLETED
+            {send_task, recv_task}, return_when=asyncio.FIRST_COMPLETED
         )
         for task in pending:
             task.cancel()
@@ -1397,7 +1939,6 @@ async def game_ws(ws: WebSocket) -> None:
             except (asyncio.CancelledError, WebSocketDisconnect):
                 pass
 
-        # Re-raise any exception from the game loop
         for task in done:
             if task.exception():
                 raise task.exception()  # type: ignore[misc]
@@ -1409,6 +1950,8 @@ async def game_ws(ws: WebSocket) -> None:
             await ws.send_text(_to_json({"type": "error", "message": str(exc)}))
         except Exception:
             pass
+    finally:
+        _single_game_broadcaster.unsubscribe(q)
 
 
 # --------------------------------------------------------------------------- #

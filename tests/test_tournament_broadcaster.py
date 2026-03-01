@@ -17,6 +17,7 @@ server required).
 import asyncio
 import json
 import unittest
+from collections import deque
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -140,6 +141,106 @@ class TournamentReplayTests(unittest.TestCase):
         self.assertEqual(evt2["type"], "MoveAppliedEvent")
         self.assertEqual(evt2["move_uci"], "d2d4")
 
+    def test_tournament_snapshot_fallback_when_replay_root_evicted(self):
+        """
+        If replay no longer starts with TournamentStartEvent, server should send
+        a snapshot so reconnecting clients can still rebuild state.
+        """
+        truncated_log = [_make_replay_log()[-1]]  # MatchGameEvent only
+        snapshot_state = {
+            "status": "running",
+            "tournamentType": "knockout",
+            "participantNames": ["Alpha", "Bravo"],
+            "totalRounds": 1,
+            "currentRound": 1,
+            "pairings": [{"matchId": "r1-m1", "whiteName": "Alpha", "blackName": "Bravo"}],
+            "matches": {
+                "r1-m1": {
+                    "matchId": "r1-m1",
+                    "whiteName": "Alpha",
+                    "blackName": "Bravo",
+                    "roundNum": 1,
+                    "gameNum": 1,
+                    "status": "live",
+                    "result": None,
+                    "gameOverReason": None,
+                    "advancingName": None,
+                    "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+                    "lastMove": {"from": "e2", "to": "e4"},
+                    "turn": "white",
+                    "thinking": False,
+                    "plies": [],
+                    "moves": [],
+                }
+            },
+            "standings": [],
+            "winner": None,
+            "error": None,
+        }
+
+        with (
+            patch.object(web_app._tournament_broadcaster, "_tournament_log", deque(truncated_log)),
+            patch.object(web_app._tournament_broadcaster, "_tournament_state", snapshot_state),
+        ):
+            with TestClient(web_app.app) as client:
+                with client.websocket_connect("/ws/tournament") as ws:
+                    payload = ws.receive_json()
+
+        self.assertEqual(payload["type"], "TournamentSnapshotEvent")
+        self.assertEqual(payload["status"], "running")
+        self.assertIn("r1-m1", payload["matches"])
+
+    def test_game_snapshot_fallback_when_game_start_evicted(self):
+        """
+        If per-match replay no longer starts with GameStartEvent, the game socket
+        should bootstrap from snapshot.
+        """
+        truncated_game_log = {
+            "r1-m1": [
+                web_app._to_json_dict(
+                    MoveAppliedEvent(
+                        color="white",
+                        move_uci="d2d4",
+                        move_san="d4",
+                        raw_response="d2d4",
+                        reasoning="",
+                        fen_after="rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+                        board_ascii_after="",
+                        is_check=False,
+                        move_number=1,
+                    )
+                )
+            ]
+        }
+        snapshot_state = {
+            "r1-m1": {
+                "phase": "playing",
+                "players": {"white": {"name": "Alpha"}, "black": {"name": "Bravo"}},
+                "fen": "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+                "lastMove": {"from": "d2", "to": "d4"},
+                "turn": "black",
+                "thinking": False,
+                "reasoning": {"white": "", "black": ""},
+                "moves": [{"number": 1, "white": {"san": "d4", "reasoning": ""}}],
+                "plies": [],
+                "invalidAttempt": None,
+                "result": None,
+                "error": None,
+            }
+        }
+
+        with (
+            patch.object(web_app._tournament_broadcaster, "_game_log", truncated_game_log),
+            patch.object(web_app._tournament_broadcaster, "_game_state", snapshot_state),
+        ):
+            with TestClient(web_app.app) as client:
+                with client.websocket_connect("/ws/tournament/game/r1-m1") as ws:
+                    payload = ws.receive_json()
+
+        self.assertEqual(payload["type"], "GameSnapshotEvent")
+        self.assertEqual(payload["fen"], "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1")
+        self.assertEqual(payload["players"]["white"]["name"], "Alpha")
+
     def test_reconnect_simulation_state_is_reconstructable(self):
         """
         Simulates a reconnect: state built from replayed events should match
@@ -182,3 +283,78 @@ class TournamentReplayTests(unittest.TestCase):
         self.assertEqual(match["fen"],
                          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1")
         self.assertEqual(match["plies"], ["e4"])
+
+
+class SingleGameReplayTests(unittest.TestCase):
+
+    def test_single_game_resume_replays_full_log(self):
+        game_start = web_app._to_json_dict(
+            GameStartEvent(white_name="Alpha", black_name="Bravo")
+        )
+        move = web_app._to_json_dict(
+            MoveAppliedEvent(
+                color="white",
+                move_uci="e2e4",
+                move_san="e4",
+                raw_response="e2e4",
+                reasoning="",
+                fen_after="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+                board_ascii_after="",
+                is_check=False,
+                move_number=1,
+            )
+        )
+        replay_log = deque([game_start, move])
+
+        with patch.object(web_app._single_game_broadcaster, "_log", replay_log):
+            with TestClient(web_app.app) as client:
+                with client.websocket_connect("/ws/game") as ws:
+                    ws.send_json({"type": "resume"})
+                    evt1 = ws.receive_json()
+                    evt2 = ws.receive_json()
+
+        self.assertEqual(evt1["type"], "GameStartEvent")
+        self.assertEqual(evt2["type"], "MoveAppliedEvent")
+        self.assertEqual(evt2["move_uci"], "e2e4")
+
+    def test_single_game_resume_uses_snapshot_when_root_evicted(self):
+        move = web_app._to_json_dict(
+            MoveAppliedEvent(
+                color="white",
+                move_uci="d2d4",
+                move_san="d4",
+                raw_response="d2d4",
+                reasoning="",
+                fen_after="rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+                board_ascii_after="",
+                is_check=False,
+                move_number=1,
+            )
+        )
+        snapshot_state = {
+            "phase": "playing",
+            "players": {"white": {"name": "Alpha"}, "black": {"name": "Bravo"}},
+            "fen": "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1",
+            "lastMove": {"from": "d2", "to": "d4"},
+            "turn": "black",
+            "thinking": False,
+            "reasoning": {"white": "", "black": ""},
+            "moves": [{"number": 1, "white": {"san": "d4", "reasoning": ""}}],
+            "plies": [],
+            "invalidAttempt": None,
+            "result": None,
+            "error": None,
+        }
+
+        with (
+            patch.object(web_app._single_game_broadcaster, "_log", deque([move])),
+            patch.object(web_app._single_game_broadcaster, "_state", snapshot_state),
+        ):
+            with TestClient(web_app.app) as client:
+                with client.websocket_connect("/ws/game") as ws:
+                    ws.send_json({"type": "resume"})
+                    payload = ws.receive_json()
+
+        self.assertEqual(payload["type"], "GameSnapshotEvent")
+        self.assertEqual(payload["fen"], "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1")
+        self.assertEqual(payload["players"]["white"]["name"], "Alpha")

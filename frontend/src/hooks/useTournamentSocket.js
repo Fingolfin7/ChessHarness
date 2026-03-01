@@ -101,6 +101,21 @@ function applyMatchGameEvent(match, gameEvent) {
 
 function reducer(state, action) {
   switch (action.type) {
+    case 'TournamentSnapshotEvent':
+      return {
+        ...INITIAL_STATE,
+        status: action.status ?? 'idle',
+        tournamentType: action.tournamentType ?? null,
+        participantNames: action.participantNames ?? [],
+        totalRounds: action.totalRounds ?? 0,
+        currentRound: action.currentRound ?? 0,
+        pairings: action.pairings ?? [],
+        matches: action.matches ?? {},
+        standings: action.standings ?? [],
+        winner: action.winner ?? null,
+        error: action.error ?? null,
+      }
+
     case 'TournamentStartEvent':
       return {
         ...INITIAL_STATE,

@@ -41,6 +41,23 @@ function updateMoves(moves, event) {
 
 function applyEvent(state, event) {
   switch (event.type) {
+    case 'GameSnapshotEvent':
+      return {
+        ...INITIAL_STATE,
+        phase: event.phase ?? 'playing',
+        players: event.players ?? { white: null, black: null },
+        fen: event.fen ?? 'start',
+        lastMove: event.lastMove ?? null,
+        turn: event.turn ?? 'white',
+        thinking: event.thinking ?? false,
+        reasoning: event.reasoning ?? { white: '', black: '' },
+        moves: event.moves ?? [],
+        plies: event.plies ?? [],
+        invalidAttempt: event.invalidAttempt ?? null,
+        result: event.result ?? null,
+        error: event.error ?? null,
+      }
+
     case 'GameStartEvent':
       return {
         ...INITIAL_STATE,
