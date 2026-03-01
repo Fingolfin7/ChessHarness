@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { providerLabel } from '../utils/providerLabels.js'
 
 export function VisionIcon({ className }) {
   return (
@@ -69,7 +70,7 @@ export default function ModelDropdown({ value, modelsByProvider, onChange, place
           </button>
           {Object.entries(modelsByProvider).map(([provider, pModels]) => (
             <div key={provider}>
-              <div className="model-dd-group-label">{provider}</div>
+              <div className="model-dd-group-label">{providerLabel(provider)}</div>
               {pModels.map(m => {
                 const v = JSON.stringify(m)
                 return (

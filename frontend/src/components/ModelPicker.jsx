@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ModelDropdown, { VisionIcon } from './ModelDropdown.jsx'
+import { providerLabel } from '../utils/providerLabels.js'
 
 export default function ModelPicker({
   models, authProviders, authReady,
@@ -193,7 +194,7 @@ export default function ModelPicker({
                 return (
                   <div key="copilot_chat" className="auth-row">
                     <div className="auth-provider">
-                      <strong>GitHub Copilot Chat</strong>
+                      <strong>github copilot</strong>
                       <span className={connected ? 'auth-connected' : 'auth-disconnected'}>
                         {connected ? 'Connected' : 'Not connected'}
                       </span>
@@ -282,7 +283,7 @@ export default function ModelPicker({
                 return (
                   <div key="openai_chatgpt" className="auth-row">
                     <div className="auth-provider">
-                      <strong>OpenAI ChatGPT/Codex</strong>
+                      <strong>openai (codex)</strong>
                       <span className={connected ? 'auth-connected' : 'auth-disconnected'}>
                         {connected ? 'Connected' : 'Not connected'}
                       </span>
@@ -294,14 +295,7 @@ export default function ModelPicker({
                         </button>
                       </div>
                     )}
-                    <input
-                      type="password"
-                      placeholder="Paste ChatGPT/Codex bearer token"
-                      value={tokens.openai_chatgpt || ''}
-                      onChange={e => setTokens(prev => ({ ...prev, openai_chatgpt: e.target.value }))}
-                    />
                     <div className="auth-actions">
-                      <button className="btn-inline" onClick={() => connect('openai_chatgpt')}>Connect</button>
                       <button className="btn-inline danger" onClick={() => disconnect('openai_chatgpt')}>Disconnect</button>
                     </div>
                   </div>
@@ -312,7 +306,7 @@ export default function ModelPicker({
               return (
                 <div key={provider} className="auth-row">
                   <div className="auth-provider">
-                    <strong>{provider}</strong>
+                    <strong>{providerLabel(provider)}</strong>
                     <span className={connected ? 'auth-connected' : 'auth-disconnected'}>
                       {connected ? 'Connected' : 'Not connected'}
                     </span>

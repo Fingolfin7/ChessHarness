@@ -64,19 +64,40 @@ providers:
         name: "o3-mini"
         # Optional per-model override. When omitted, ChessHarness auto-detects by model ID.
         # supports_vision: false
-
   # OpenAI ChatGPT/Codex session auth (supports "Use Codex Login" in the web UI)
-  # Uses ChatGPT's Codex endpoint, separate from standard OpenAI API-key auth above.
   openai_chatgpt:
     base_url: "https://chatgpt.com/backend-api/codex"
     models:
-      - id: gpt-5-codex
-        name: "GPT-5 Codex (ChatGPT)"
+      - id: "gpt-5"
+        name: "gpt-5"
         supports_vision: true
-      - id: gpt-5-codex-high
-        name: "GPT-5 Codex High (ChatGPT)"
+      - id: "gpt-5-codex"
+        name: "gpt-5-codex"
         supports_vision: true
-
+      - id: "gpt-5-codex-mini"
+        name: "gpt-5-codex-mini"
+        supports_vision: true
+      - id: "gpt-5.1"
+        name: "gpt-5.1"
+        supports_vision: true
+      - id: "gpt-5.1-codex"
+        name: "gpt-5.1-codex"
+        supports_vision: true
+      - id: "gpt-5.1-codex-max"
+        name: "gpt-5.1-codex-max"
+        supports_vision: true
+      - id: "gpt-5.1-codex-mini"
+        name: "gpt-5.1-codex-mini"
+        supports_vision: true
+      - id: "gpt-5.2"
+        name: "gpt-5.2"
+        supports_vision: true
+      - id: "gpt-5.2-codex"
+        name: "gpt-5.2-codex"
+        supports_vision: true
+      - id: "gpt-5.3-codex"
+        name: "gpt-5.3-codex"
+        supports_vision: true
   anthropic:
     api_key: "YOUR_ANTHROPIC_KEY"
     models:
