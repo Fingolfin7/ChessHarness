@@ -48,7 +48,7 @@ function ModelSelect({ index, value, modelsByProvider, onChange, onRemove, canRe
 
 export default function TournamentSetup() {
   const navigate = useNavigate()
-  const { models, authReady, defaultSettings } = useAppContext()
+  const { models, authProviders, authReady, defaultSettings } = useAppContext()
 
   const [players, setPlayers] = useState(['', ''])
   const [drawHandling, setDrawHandling] = useState('rematch')
@@ -77,16 +77,36 @@ export default function TournamentSetup() {
     }))
   }, [defaultSettings])
 
-  // Only show models from connected providers (authProviders filtering
-  // happens on the server; models list already contains only connected ones)
+  // Only show models from providers that are currently connected.
+  const availableModels = useMemo(() => {
+    if (!authReady) return []
+    return models.filter(m => authProviders[m.provider])
+  }, [models, authProviders, authReady])
+
   const modelsByProvider = useMemo(() => {
     const out = {}
-    for (const m of models) {
+    for (const m of availableModels) {
       if (!out[m.provider]) out[m.provider] = []
       out[m.provider].push(m)
     }
     return out
-  }, [models])
+  }, [availableModels])
+
+  // Clear selected participants whose providers become disconnected.
+  useEffect(() => {
+    if (!authReady) return
+    setPlayers(prev =>
+      prev.map(v => {
+        if (!v) return v
+        try {
+          const m = JSON.parse(v)
+          return authProviders[m.provider] ? v : ''
+        } catch {
+          return ''
+        }
+      }),
+    )
+  }, [authProviders, authReady])
 
   const selectedCount = players.filter(Boolean).length
   const canStart = selectedCount >= 2 && !loading
@@ -175,7 +195,7 @@ export default function TournamentSetup() {
           <p className="ts-bye-note">Checking providers…</p>
         )}
 
-        {authReady && models.length === 0 && (
+        {authReady && availableModels.length === 0 && (
           <div className="setup-error">
             No models available. Connect a provider on the{' '}
             <button className="btn-link" onClick={() => navigate('/game')}>game setup</button> page first.
@@ -340,7 +360,7 @@ export default function TournamentSetup() {
         <button
           className="start-btn"
           onClick={handleStart}
-          disabled={!canStart || models.length === 0}
+          disabled={!canStart || availableModels.length === 0}
         >
           {loading ? 'Starting…' : 'Start Tournament'}
         </button>
