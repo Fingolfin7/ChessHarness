@@ -116,6 +116,19 @@ export function AppProvider({ children }) {
     }
   }, [refreshModels])
 
+  const connectOpenAIChatGPTFromCodex = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/openai_chatgpt/codex/connect', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return { ok: false, error: data.detail || 'Codex connect failed.' }
+      setAuthProviders(prev => ({ ...prev, openai_chatgpt: true }))
+      refreshModels()
+      return { ok: true, verified: !!data.verified }
+    } catch {
+      return { ok: false, error: 'Network error.' }
+    }
+  }, [refreshModels])
+
   return (
     <AppContext.Provider value={{
       models,
@@ -127,6 +140,7 @@ export function AppProvider({ children }) {
       disconnectProvider,
       startCopilotDeviceFlow,
       pollCopilotDeviceFlow,
+      connectOpenAIChatGPTFromCodex,
     }}>
       {children}
     </AppContext.Provider>

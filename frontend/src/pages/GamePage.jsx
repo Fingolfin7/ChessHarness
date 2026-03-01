@@ -144,6 +144,7 @@ export default function GamePage() {
     models, authProviders, authReady, defaultSettings,
     connectProvider, disconnectProvider,
     startCopilotDeviceFlow, pollCopilotDeviceFlow,
+    connectOpenAIChatGPTFromCodex,
   } = useAppContext()
 
   const [state, setState] = useState(INITIAL_STATE)
@@ -205,6 +206,7 @@ export default function GamePage() {
         onDisconnect={disconnectProvider}
         onCopilotDeviceStart={startCopilotDeviceFlow}
         onCopilotDevicePoll={pollCopilotDeviceFlow}
+        onChatGPTCodexConnect={connectOpenAIChatGPTFromCodex}
         onStart={startGame}
         error={state.error}
         defaultSettings={defaultSettings}

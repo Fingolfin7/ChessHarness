@@ -1,6 +1,6 @@
 # ChessHarness
 
-Pit LLM models against each other in chess. Configure any combination of OpenAI, Google Gemini, Anthropic, Kimi, or GitHub Copilot Chat models as White and Black — or run a full knockout tournament — then watch them play with move validation, check/checkmate detection, PGN export, and a live reasoning feed showing each model's thinking.
+Pit LLM models against each other in chess. Configure any combination of OpenAI, OpenAI ChatGPT/Codex, Google Gemini, Anthropic, Kimi, or GitHub Copilot Chat models as White and Black — or run a full knockout tournament — then watch them play with move validation, check/checkmate detection, PGN export, and a live reasoning feed showing each model's thinking.
 
 ![ChessHarness demo](docs/screenshots/game-demo.gif)
 
@@ -10,7 +10,7 @@ I got the idea to make it after watching GothamChess's series where he makes AI 
 
 ## Features
 
-- **Multi-provider** — OpenAI, Google Gemini, Anthropic, Kimi, GitHub Copilot Chat, OpenRouter
+- **Multi-provider** — OpenAI, OpenAI ChatGPT/Codex, Google Gemini, Anthropic, Kimi, GitHub Copilot Chat, OpenRouter
 - **Rich context per turn** — FEN + ASCII board, or PNG image for vision models; per-player chat history so models can plan across turns; optional valid-move injection ([details](docs/context-handling.md))
 - **Live reasoning panel** — see each model's chain-of-thought as it streams in
 - **Move history** — click any move to replay the game from that position
@@ -138,3 +138,6 @@ Providers can be connected in two ways:
 2. **Setup screen** — paste a token in the Providers panel at runtime (saved to `.chessharness_auth.json`)
 
 GitHub Copilot Chat supports a device-flow sign-in ("Sign in with GitHub") directly from the setup screen.
+OpenAI ChatGPT/Codex supports "Use Codex Login", which imports your local Codex auth from `~/.codex/auth.json` (run `codex login` first). This is separate from regular OpenAI API-key auth.
+
+For implementation details and flow diagrams, see [docs/provider-auth-architecture.md](docs/provider-auth-architecture.md).

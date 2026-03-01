@@ -65,6 +65,18 @@ providers:
         # Optional per-model override. When omitted, ChessHarness auto-detects by model ID.
         # supports_vision: false
 
+  # OpenAI ChatGPT/Codex session auth (supports "Use Codex Login" in the web UI)
+  # Uses ChatGPT's Codex endpoint, separate from standard OpenAI API-key auth above.
+  openai_chatgpt:
+    base_url: "https://chatgpt.com/backend-api/codex"
+    models:
+      - id: gpt-5-codex
+        name: "GPT-5 Codex (ChatGPT)"
+        supports_vision: true
+      - id: gpt-5-codex-high
+        name: "GPT-5 Codex High (ChatGPT)"
+        supports_vision: true
+
   anthropic:
     api_key: "YOUR_ANTHROPIC_KEY"
     models:

@@ -5,6 +5,7 @@ export default function ModelPicker({
   models, authProviders, authReady,
   onConnect, onDisconnect,
   onCopilotDeviceStart, onCopilotDevicePoll,
+  onChatGPTCodexConnect,
   onStart, error, defaultSettings,
 }) {
   const [white, setWhite] = useState('')
@@ -102,6 +103,20 @@ export default function ModelPicker({
     if (provider === 'copilot_chat') cancelCopilotFlow()
     const result = await onDisconnect(provider)
     setAuthMessage(result ? `Disconnected ${provider}.` : `Failed to disconnect ${provider}.`)
+  }
+
+  const connectChatGPTCodex = async () => {
+    setAuthMessage('Importing ChatGPT/Codex auth...')
+    const result = await onChatGPTCodexConnect()
+    if (result.ok) {
+      if (result.verified) {
+        setAuthMessage('Connected openai_chatgpt via Codex login.')
+      } else {
+        setAuthMessage('Connected openai_chatgpt via Codex login (verification skipped).')
+      }
+    } else {
+      setAuthMessage(`openai_chatgpt: ${result.error}`)
+    }
   }
 
   // ── Copilot device flow ────────────────────────────────────────────────── //
@@ -259,6 +274,36 @@ export default function ModelPicker({
                         <button className="btn-inline danger" onClick={() => disconnect('copilot_chat')}>Disconnect</button>
                       </div>
                     )}
+                  </div>
+                )
+              }
+
+              if (provider === 'openai_chatgpt') {
+                return (
+                  <div key="openai_chatgpt" className="auth-row">
+                    <div className="auth-provider">
+                      <strong>OpenAI ChatGPT/Codex</strong>
+                      <span className={connected ? 'auth-connected' : 'auth-disconnected'}>
+                        {connected ? 'Connected' : 'Not connected'}
+                      </span>
+                    </div>
+                    {!connected && (
+                      <div className="auth-actions">
+                        <button className="btn-inline" onClick={connectChatGPTCodex}>
+                          Use Codex Login
+                        </button>
+                      </div>
+                    )}
+                    <input
+                      type="password"
+                      placeholder="Paste ChatGPT/Codex bearer token"
+                      value={tokens.openai_chatgpt || ''}
+                      onChange={e => setTokens(prev => ({ ...prev, openai_chatgpt: e.target.value }))}
+                    />
+                    <div className="auth-actions">
+                      <button className="btn-inline" onClick={() => connect('openai_chatgpt')}>Connect</button>
+                      <button className="btn-inline danger" onClick={() => disconnect('openai_chatgpt')}>Disconnect</button>
+                    </div>
                   </div>
                 )
               }

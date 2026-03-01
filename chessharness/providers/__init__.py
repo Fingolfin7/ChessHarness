@@ -17,6 +17,7 @@ from collections.abc import Callable, Awaitable
 from chessharness.config import ProviderConfig
 from chessharness.providers.base import LLMProvider, Message, ProviderError
 from chessharness.providers.openai import OpenAIProvider
+from chessharness.providers.openai_chatgpt import OpenAIChatGPTProvider
 from chessharness.providers.anthropic import AnthropicProvider
 from chessharness.providers.google import GoogleProvider
 
@@ -25,6 +26,7 @@ __all__ = [
     "Message",
     "ProviderError",
     "OpenAIProvider",
+    "OpenAIChatGPTProvider",
     "AnthropicProvider",
     "GoogleProvider",
     "create_provider",
@@ -94,8 +96,16 @@ def create_provider(
                 supports_vision_override=supports_vision_override,
                 token_refresher=token_refresher if is_copilot else None,
             )
+        case "openai_chatgpt":
+            return OpenAIChatGPTProvider(
+                bearer_token=token,
+                model=model_id,
+                base_url=prov_cfg.base_url,
+                supports_vision_override=supports_vision_override,
+                token_refresher=token_refresher,
+            )
         case _:
             raise ValueError(
                 f"Unknown provider: '{provider_name}'. "
-                "Supported: openai, anthropic, google, kimi, copilot_chat, groq, openrouter"
+                "Supported: openai, openai_chatgpt, anthropic, google, kimi, copilot_chat, groq, openrouter"
             )

@@ -21,6 +21,7 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -93,10 +94,16 @@ app = FastAPI(title="ChessHarness")
 
 
 _COPILOT_CHAT_PROVIDER = "copilot_chat"
+_OPENAI_CHATGPT_PROVIDER = "openai_chatgpt"
 
 # GitHub OAuth App client_id for Copilot device flow (same one used by copilot.vim / copilot.lua)
 _COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 _COPILOT_CHAT_API_BASE = "https://api.githubcopilot.com"
+_OPENAI_CHATGPT_API_BASE = "https://chatgpt.com/backend-api/codex"
+_MAX_TOURNAMENT_REPLAY_EVENTS = 5000
+_MAX_GAME_REPLAY_EVENTS = 2000
+_MAX_SUBSCRIBER_QUEUE = 500
+_CODEX_AUTH_PATH = Path.home() / ".codex" / "auth.json"
 
 
 @app.on_event("startup")
@@ -135,6 +142,7 @@ async def _startup() -> None:
 # All providers the app knows about, independent of config.yaml
 _KNOWN_PROVIDERS: dict[str, dict] = {
     "openai":    {"base_url": None},
+    _OPENAI_CHATGPT_PROVIDER: {"base_url": _OPENAI_CHATGPT_API_BASE},
     "anthropic": {"base_url": None},
     "google":    {"base_url": None},
     _COPILOT_CHAT_PROVIDER: {"base_url": _COPILOT_CHAT_API_BASE},
@@ -143,7 +151,11 @@ _KNOWN_PROVIDERS: dict[str, dict] = {
 
 def _canonical_provider_name(name: str) -> str:
     """Map legacy provider ids to the current canonical name."""
-    return _COPILOT_CHAT_PROVIDER if name == "copilot" else name
+    if name == "copilot":
+        return _COPILOT_CHAT_PROVIDER
+    if name in {"chatgpt", "codex"}:
+        return _OPENAI_CHATGPT_PROVIDER
+    return name
 
 
 def _providers_from_config_with_migrations() -> dict[str, ProviderConfig]:
@@ -158,6 +170,12 @@ def _providers_from_config_with_migrations() -> dict[str, ProviderConfig]:
             base_url=_COPILOT_CHAT_API_BASE,
         )
         providers.pop("copilot", None)
+    if _OPENAI_CHATGPT_PROVIDER in providers:
+        p = providers[_OPENAI_CHATGPT_PROVIDER]
+        providers[_OPENAI_CHATGPT_PROVIDER] = replace(
+            p,
+            base_url=(p.base_url or _OPENAI_CHATGPT_API_BASE),
+        )
     return providers
 
 
@@ -236,6 +254,33 @@ def _parse_timestamp_utc(value: object) -> datetime | None:
     return None
 
 
+def _load_codex_auth_payload() -> dict | None:
+    """Read ~/.codex/auth.json if present and valid."""
+    if not _CODEX_AUTH_PATH.exists():
+        return None
+    try:
+        raw = _CODEX_AUTH_PATH.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _extract_codex_openai_token(payload: dict) -> str:
+    """Extract the best OpenAI credential from Codex auth payload."""
+    api_key = payload.get("OPENAI_API_KEY")
+    if isinstance(api_key, str) and api_key.strip():
+        return api_key.strip()
+
+    tokens = payload.get("tokens")
+    if isinstance(tokens, dict):
+        access_token = tokens.get("access_token")
+        if isinstance(access_token, str) and access_token.strip():
+            return access_token.strip()
+
+    return ""
+
+
 async def _copilot_chat_exchange_token(github_token: str) -> dict:
     """Exchange a GitHub token for a short-lived Copilot Chat access token."""
     result = await _github_http(
@@ -303,11 +348,67 @@ def _make_copilot_token_refresher():
     return _refresher
 
 
+def _make_openai_chatgpt_token_refresher():
+    """Return an async callable that reloads token from ~/.codex/auth.json when available."""
+    async def _refresher(force: bool = False) -> str:
+        # Refresh from local Codex auth only if this provider was connected via Codex import.
+        if auth_tokens.get(f"{_OPENAI_CHATGPT_PROVIDER}__source") == "codex_auth":
+            payload = _load_codex_auth_payload()
+            if isinstance(payload, dict):
+                token = _extract_codex_openai_token(payload)
+                if token:
+                    auth_tokens[_OPENAI_CHATGPT_PROVIDER] = token
+                    save_auth_tokens(auth_tokens)
+                    return token
+        return auth_tokens.get(_OPENAI_CHATGPT_PROVIDER, "")
+    return _refresher
+
+
 async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderConfig]) -> bool:
     """Verify a provider token is valid via a lightweight API call."""
+    ok, _, _ = await _verify_token_detailed(provider_name, providers_cfg)
+    return ok
+
+
+def _looks_like_auth_error(exc: Exception | str) -> bool:
+    text = str(exc).lower()
+    auth_markers = (
+        "401",
+        "403",
+        "unauthorized",
+        "forbidden",
+        "authentication",
+        "auth error",
+        "invalid api key",
+        "api key not valid",
+        "invalid token",
+        "bad credentials",
+        "permission denied",
+    )
+    return any(marker in text for marker in auth_markers)
+
+
+def _google_error_kind(data: dict) -> str:
+    err = data.get("error")
+    if isinstance(err, dict):
+        code = int(err.get("code", 0) or 0)
+        status = str(err.get("status", "")).upper()
+        message = str(err.get("message", "")).lower()
+        if code in {401, 403} or status in {"UNAUTHENTICATED", "PERMISSION_DENIED"}:
+            return "auth"
+        if "api key not valid" in message or "invalid api key" in message:
+            return "auth"
+    return "upstream"
+
+
+async def _verify_token_detailed(
+    provider_name: str,
+    providers_cfg: dict[str, ProviderConfig],
+) -> tuple[bool, str | None, str | None]:
+    """Return (ok, failure_kind, detail) where failure_kind is 'auth' or 'upstream'."""
     prov = providers_cfg.get(provider_name)
     if not prov or not prov.auth_token:
-        return False
+        return False, "auth", "Missing token"
     token = prov.auth_token
     try:
         async with asyncio.timeout(8):
@@ -315,20 +416,36 @@ async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderCon
                 import anthropic as _anthropic
                 client = _anthropic.AsyncAnthropic(api_key=token)
                 await client.models.list()
+            elif provider_name == _OPENAI_CHATGPT_PROVIDER:
+                from openai import AsyncOpenAI
+                client = AsyncOpenAI(api_key=token, base_url=prov.base_url)
+                probe_model = (
+                    prov.models[0].id
+                    if prov.models
+                    else "gpt-5-codex"
+                )
+                await client.responses.create(
+                    model=probe_model,
+                    input=[{"role": "user", "content": [{"type": "input_text", "text": "ping"}]}],
+                    max_output_tokens=8,
+                    store=False,
+                )
             elif provider_name == "google":
                 url = (
                     "https://generativelanguage.googleapis.com/v1beta/models?"
                     + urllib.parse.urlencode({"key": token})
                 )
                 data = await _http_get(url)
+                if isinstance(data, dict) and "error" in data:
+                    return False, _google_error_kind(data), str(data.get("error", data))
                 if not isinstance(data, dict) or "models" not in data:
-                    return False
+                    return False, "upstream", f"Unexpected Google response: {type(data).__name__}"
             elif provider_name == _COPILOT_CHAT_PROVIDER:
                 # Support either a GitHub token (exchange first) or a direct Copilot token.
                 try:
                     exchange = await _copilot_chat_exchange_token(token)
                     if "token" in exchange:
-                        return True
+                        return True, None, None
                 except Exception:
                     from openai import AsyncOpenAI
                     client = AsyncOpenAI(
@@ -342,9 +459,10 @@ async def _verify_token(provider_name: str, providers_cfg: dict[str, ProviderCon
                 from openai import AsyncOpenAI
                 client = AsyncOpenAI(api_key=token, base_url=prov.base_url)
                 await client.models.list()
-        return True
-    except Exception:
-        return False
+        return True, None, None
+    except Exception as exc:
+        kind = "auth" if _looks_like_auth_error(exc) else "upstream"
+        return False, kind, str(exc)
 
 
 def _to_json(data: dict) -> str:
@@ -475,7 +593,22 @@ async def get_auth_providers():
     )
 
     async def check(name: str) -> dict:
-        ok = await _verify_token(name, providers_cfg)
+        # Codex-imported ChatGPT tokens can fail strict verification despite being
+        # usable for Codex responses. Treat stored Codex auth as connected.
+        if (
+            name == _OPENAI_CHATGPT_PROVIDER
+            and auth_tokens.get(_OPENAI_CHATGPT_PROVIDER)
+            and auth_tokens.get(f"{_OPENAI_CHATGPT_PROVIDER}__source") == "codex_auth"
+        ):
+            return {"provider": name, "connected": True}
+
+        ok, kind, detail = await _verify_token_detailed(name, providers_cfg)
+        if not ok and kind == "upstream":
+            logger.warning(
+                "Provider connectivity check failed due to upstream error [provider=%s]: %s",
+                name,
+                detail,
+            )
         return {"provider": name, "connected": ok}
 
     return await asyncio.gather(*[check(name) for name in provider_names])
@@ -501,8 +634,30 @@ async def connect_auth(payload: dict):
             bearer_token=token,
             base_url=_KNOWN_PROVIDERS[provider].get("base_url"),
         )}
-    if not await _verify_token(provider, test_cfg):
-        raise HTTPException(status_code=401, detail=f"Token verification failed for {provider}")
+    verified, failure_kind, failure_detail = await _verify_token_detailed(provider, test_cfg)
+    if not verified:
+        if provider == _OPENAI_CHATGPT_PROVIDER:
+            logger.warning(
+                "Proceeding with %s token despite failed verification [kind=%s detail=%s]",
+                provider,
+                failure_kind,
+                failure_detail,
+            )
+            auth_tokens[f"{provider}__source"] = "manual"
+            auth_tokens[provider] = token
+            save_auth_tokens(auth_tokens)
+            return {"provider": provider, "connected": True, "verified": False}
+        if failure_kind == "auth":
+            raise HTTPException(status_code=401, detail=f"Token verification failed for {provider}")
+        logger.warning(
+            "Token verification upstream failure [provider=%s]: %s",
+            provider,
+            failure_detail,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not verify token for {provider} due to upstream/provider error. Please try again.",
+        )
 
     if provider == _COPILOT_CHAT_PROVIDER:
         # Prefer GitHub token -> Copilot token exchange; accept direct Copilot token as fallback.
@@ -545,6 +700,108 @@ def disconnect_auth(payload: dict):
     if keys_to_remove:
         save_auth_tokens(auth_tokens)
     return {"provider": provider, "connected": _provider_connected(provider)}
+
+
+@app.post("/api/auth/openai/codex/connect")
+async def connect_openai_from_codex():
+    """Import OpenAI auth from local Codex login (~/.codex/auth.json)."""
+    payload = _load_codex_auth_payload()
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Codex auth file not found. Run `codex login` first.",
+        )
+
+    token = _extract_codex_openai_token(payload)
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Codex auth file does not contain an OpenAI token.",
+        )
+
+    providers_from_cfg = _providers_from_config_with_migrations()
+    if "openai" in providers_from_cfg:
+        test_cfg = {
+            **providers_from_cfg,
+            "openai": replace(providers_from_cfg["openai"], bearer_token=token),
+        }
+    else:
+        test_cfg = {"openai": ProviderConfig(bearer_token=token)}
+
+    verified, failure_kind, failure_detail = await _verify_token_detailed("openai", test_cfg)
+    if not verified:
+        logger.warning(
+            "Codex OpenAI token import proceeding without verification [kind=%s detail=%s]",
+            failure_kind,
+            failure_detail,
+        )
+
+    auth_tokens["openai"] = token
+    auth_tokens["openai__source"] = "codex_auth"
+    save_auth_tokens(auth_tokens)
+    return {
+        "provider": "openai",
+        "connected": True,
+        "source": "codex",
+        "verified": bool(verified),
+    }
+
+
+@app.post("/api/auth/openai_chatgpt/codex/connect")
+@app.post("/api/auth/chatgpt/codex/connect")
+async def connect_openai_chatgpt_from_codex():
+    """Import ChatGPT/Codex auth from local Codex login (~/.codex/auth.json)."""
+    payload = _load_codex_auth_payload()
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Codex auth file not found. Run `codex login` first.",
+        )
+
+    token = _extract_codex_openai_token(payload)
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Codex auth file does not contain a usable token.",
+        )
+
+    providers_from_cfg = _providers_from_config_with_migrations()
+    if _OPENAI_CHATGPT_PROVIDER in providers_from_cfg:
+        test_cfg = {
+            **providers_from_cfg,
+            _OPENAI_CHATGPT_PROVIDER: replace(
+                providers_from_cfg[_OPENAI_CHATGPT_PROVIDER],
+                bearer_token=token,
+            ),
+        }
+    else:
+        test_cfg = {
+            _OPENAI_CHATGPT_PROVIDER: ProviderConfig(
+                bearer_token=token,
+                base_url=_OPENAI_CHATGPT_API_BASE,
+            )
+        }
+
+    verified, failure_kind, failure_detail = await _verify_token_detailed(
+        _OPENAI_CHATGPT_PROVIDER,
+        test_cfg,
+    )
+    if not verified:
+        logger.warning(
+            "Codex ChatGPT token import proceeding without verification [kind=%s detail=%s]",
+            failure_kind,
+            failure_detail,
+        )
+
+    auth_tokens[_OPENAI_CHATGPT_PROVIDER] = token
+    auth_tokens[f"{_OPENAI_CHATGPT_PROVIDER}__source"] = "codex_auth"
+    save_auth_tokens(auth_tokens)
+    return {
+        "provider": _OPENAI_CHATGPT_PROVIDER,
+        "connected": True,
+        "source": "codex",
+        "verified": bool(verified),
+    }
 
 
 @app.post("/api/auth/copilot_chat/device/start")
@@ -660,8 +917,8 @@ class _TournamentBroadcaster:
     def __init__(self) -> None:
         self._all_subs: list[asyncio.Queue] = []
         self._game_subs: dict[str, list[asyncio.Queue]] = {}
-        self._game_log: dict[str, list[dict]] = {}   # match_id → serialised events
-        self._tournament_log: list[dict] = []         # all tournament events, serialised
+        self._game_log: dict[str, deque[dict]] = {}   # match_id -> serialised events (bounded)
+        self._tournament_log: deque[dict] = deque(maxlen=_MAX_TOURNAMENT_REPLAY_EVENTS)
         self._pgns: list[str] = []                    # PGN for each completed game
         self.status: dict = {"state": "idle"}
         self._task: asyncio.Task | None = None
@@ -669,7 +926,7 @@ class _TournamentBroadcaster:
     # ── Subscriptions ────────────────────────────────────────────────── #
 
     def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=_MAX_SUBSCRIBER_QUEUE)
         self._all_subs.append(q)
         return q
 
@@ -680,7 +937,7 @@ class _TournamentBroadcaster:
             pass
 
     def subscribe_game(self, match_id: str) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue()
+        q: asyncio.Queue = asyncio.Queue(maxsize=_MAX_SUBSCRIBER_QUEUE)
         self._game_subs.setdefault(match_id, []).append(q)
         return q
 
@@ -690,6 +947,8 @@ class _TournamentBroadcaster:
             subs.remove(q)
         except ValueError:
             pass
+        if not subs:
+            self._game_subs.pop(match_id, None)
 
     def replay_log(self) -> list[dict]:
         return list(self._tournament_log)
@@ -699,15 +958,38 @@ class _TournamentBroadcaster:
 
     # ── Broadcasting ─────────────────────────────────────────────────── #
 
+    @staticmethod
+    def _enqueue_latest(q: asyncio.Queue, payload: dict) -> None:
+        """Bounded fan-out: if a subscriber is slow, drop its oldest queued item."""
+        try:
+            q.put_nowait(payload)
+            return
+        except asyncio.QueueFull:
+            pass
+
+        try:
+            q.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            # If still full, skip this payload for that subscriber.
+            return
+
     async def _broadcast_all(self, payload: dict) -> None:
         self._tournament_log.append(payload)
         for q in list(self._all_subs):
-            await q.put(payload)
+            self._enqueue_latest(q, payload)
 
     async def _broadcast_game(self, match_id: str, payload: dict) -> None:
-        self._game_log.setdefault(match_id, []).append(payload)
+        self._game_log.setdefault(
+            match_id,
+            deque(maxlen=_MAX_GAME_REPLAY_EVENTS),
+        ).append(payload)
         for q in list(self._game_subs.get(match_id, [])):
-            await q.put(payload)
+            self._enqueue_latest(q, payload)
 
     # ── Tournament runner ─────────────────────────────────────────────── #
 
@@ -885,6 +1167,14 @@ async def tournament_start(payload: dict):
     tournament_config = replace(config, game=game_cfg)
 
     copilot_refresher = _make_copilot_token_refresher()
+    openai_chatgpt_refresher = _make_openai_chatgpt_token_refresher()
+
+    def _token_refresher_for(provider_name: str):
+        if provider_name == _COPILOT_CHAT_PROVIDER:
+            return copilot_refresher
+        if provider_name == _OPENAI_CHATGPT_PROVIDER:
+            return openai_chatgpt_refresher
+        return None
 
     def player_factory(participant: TournamentParticipant):
         provider = create_provider(
@@ -892,7 +1182,7 @@ async def tournament_start(payload: dict):
             participant.model.id,
             providers_cfg,
             supports_vision_override=participant.model.supports_vision,
-            token_refresher=copilot_refresher,
+            token_refresher=_token_refresher_for(participant.provider_name),
         )
         return create_player(
             participant.provider_name,
@@ -1014,19 +1304,28 @@ async def game_ws(ws: WebSocket) -> None:
         white_model = _find_model_entry(providers_cfg, w["provider"], w["model_id"])
         black_model = _find_model_entry(providers_cfg, b["provider"], b["model_id"])
         copilot_refresher = _make_copilot_token_refresher()
+        openai_chatgpt_refresher = _make_openai_chatgpt_token_refresher()
+
+        def _token_refresher_for(provider_name: str):
+            if provider_name == _COPILOT_CHAT_PROVIDER:
+                return copilot_refresher
+            if provider_name == _OPENAI_CHATGPT_PROVIDER:
+                return openai_chatgpt_refresher
+            return None
+
         white_provider = create_provider(
             w["provider"],
             w["model_id"],
             providers_cfg,
             supports_vision_override=(white_model.supports_vision if white_model else None),
-            token_refresher=copilot_refresher,
+            token_refresher=_token_refresher_for(w["provider"]),
         )
         black_provider = create_provider(
             b["provider"],
             b["model_id"],
             providers_cfg,
             supports_vision_override=(black_model.supports_vision if black_model else None),
-            token_refresher=copilot_refresher,
+            token_refresher=_token_refresher_for(b["provider"]),
         )
 
         white_player = create_player(
