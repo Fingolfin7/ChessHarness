@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ModelDropdown, { VisionIcon } from './ModelDropdown.jsx'
-import { providerLabel } from '../utils/providerLabels.js'
+import { providerLabel, compareProviderNames } from '../utils/providerLabels.js'
 
 export default function ModelPicker({
   models, authProviders, authReady,
@@ -29,7 +29,7 @@ export default function ModelPicker({
   const pollTimerRef = useRef(null)
 
   const signinProviders = useMemo(() => {
-    return Object.keys(authProviders).sort()
+    return Object.keys(authProviders).sort(compareProviderNames)
   }, [authProviders])
 
   // Only expose models from providers that are currently connected

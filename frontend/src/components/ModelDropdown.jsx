@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { providerLabel } from '../utils/providerLabels.js'
+import { providerLabel, compareProviderNames } from '../utils/providerLabels.js'
 
 export function VisionIcon({ className }) {
   return (
@@ -68,7 +68,9 @@ export default function ModelDropdown({ value, modelsByProvider, onChange, place
             onClick={() => { onChange(''); setOpen(false) }}>
             {placeholder}
           </button>
-          {Object.entries(modelsByProvider).map(([provider, pModels]) => (
+          {Object.entries(modelsByProvider)
+            .sort(([a], [b]) => compareProviderNames(a, b))
+            .map(([provider, pModels]) => (
             <div key={provider}>
               <div className="model-dd-group-label">{providerLabel(provider)}</div>
               {pModels.map(m => {
