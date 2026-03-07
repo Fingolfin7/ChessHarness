@@ -43,12 +43,17 @@ class OpenAIChatGPTProvider(LLMProvider):
             api_key=bearer_token,
             base_url=self._base_url,
         )
+        self._last_response_metadata: dict[str, object] | None = None
 
     @property
     def supports_vision(self) -> bool:
         if self._supports_vision_override is not None:
             return self._supports_vision_override
         return any(self._model.startswith(p) for p in _VISION_PREFIXES)
+
+    @property
+    def last_response_metadata(self) -> dict[str, object] | None:
+        return self._last_response_metadata
 
     def _rebuild_client(self, new_token: str) -> None:
         self._current_token = new_token
@@ -91,6 +96,7 @@ class OpenAIChatGPTProvider(LLMProvider):
         max_tokens: int = 5120,
         reasoning_effort: str | None = None,
     ):
+        self._last_response_metadata = None
         await self._ensure_fresh_token()
         base_kwargs = self._build_request_kwargs(
             messages,
@@ -133,6 +139,8 @@ class OpenAIChatGPTProvider(LLMProvider):
                     delta = getattr(event, "delta", "")
                     if isinstance(delta, str) and delta:
                         yield delta
+                elif event_type in {"response.completed", "response.incomplete", "response.failed"}:
+                    self._last_response_metadata = _response_event_metadata(event)
         except Exception as exc:
             raise ProviderError("openai_chatgpt", str(exc), cause=exc) from exc
 
@@ -172,3 +180,47 @@ class OpenAIChatGPTProvider(LLMProvider):
                 )
             items.append({"role": role, "content": parts})
         return items
+
+
+def _response_event_metadata(event: Any) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "event_type": str(getattr(event, "type", "unknown")),
+    }
+    response = getattr(event, "response", None)
+    if response is None:
+        return metadata
+
+    for key in ("id", "model", "status"):
+        value = getattr(response, key, None)
+        if value is not None:
+            metadata[key] = value
+
+    for key in ("error", "incomplete_details", "usage"):
+        value = _normalize_metadata_value(getattr(response, key, None))
+        if value not in (None, {}, []):
+            metadata[key] = value
+    return metadata
+
+
+def _normalize_metadata_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {k: _normalize_metadata_value(v) for k, v in value.items() if v is not None}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_metadata_value(v) for v in value if v is not None]
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(exclude_none=True)
+        return _normalize_metadata_value(dumped)
+
+    if hasattr(value, "__dict__"):
+        items = {
+            key: _normalize_metadata_value(val)
+            for key, val in vars(value).items()
+            if not key.startswith("_") and val is not None
+        }
+        return items
+
+    return str(value)

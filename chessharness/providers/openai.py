@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import logging
 from collections.abc import Callable, Awaitable
+from typing import Any
 
 from openai import AsyncOpenAI, AuthenticationError as _OpenAIAuthError
 
@@ -82,6 +83,7 @@ class OpenAIProvider(LLMProvider):
             base_url=base_url,
             default_headers=default_headers,
         )
+        self._last_response_metadata: dict[str, object] | None = None
 
     def _rebuild_client(self, new_key: str) -> None:
         """Recreate the AsyncOpenAI client with a refreshed token."""
@@ -110,6 +112,10 @@ class OpenAIProvider(LLMProvider):
             return self._supports_vision_override
         return any(self._model.startswith(p) for p in _VISION_PREFIXES)
 
+    @property
+    def last_response_metadata(self) -> dict[str, object] | None:
+        return self._last_response_metadata
+
     async def complete(
         self,
         messages: list[Message],
@@ -118,6 +124,7 @@ class OpenAIProvider(LLMProvider):
         reasoning_effort: str | None = None,
     ) -> str:
         await self._ensure_fresh_token()
+        self._last_response_metadata = None
         try:
             return await self._do_complete(messages, max_tokens=max_tokens, reasoning_effort=reasoning_effort)
         except _OpenAIAuthError as exc:
@@ -148,6 +155,7 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int = 5120,
         reasoning_effort: str | None = None,
     ):
+        self._last_response_metadata = None
         await self._ensure_fresh_token()
         retried = False
         while True:
@@ -189,6 +197,7 @@ class OpenAIProvider(LLMProvider):
             max_completion_tokens=max_tokens,
             **request_kwargs,
         )
+        self._last_response_metadata = _completion_metadata(response=response)
         return (response.choices[0].message.content or "").strip()
 
     async def _do_stream(
@@ -198,6 +207,7 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int,
         reasoning_effort: str | None,
     ):
+        self._last_response_metadata = None
         api_messages = self._build_api_messages(messages)
         request_kwargs: dict = {}
         if reasoning_effort and _supports_reasoning_effort(self._model):
@@ -209,12 +219,20 @@ class OpenAIProvider(LLMProvider):
             stream=True,
             **request_kwargs,
         ) as stream:
+            last_chunk = None
+            finish_reason = None
             async for chunk in stream:
+                last_chunk = chunk
                 if not chunk.choices:
                     continue
+                finish_reason = chunk.choices[0].finish_reason or finish_reason
                 delta = chunk.choices[0].delta.content
                 if delta:
                     yield delta
+            self._last_response_metadata = _completion_metadata(
+                chunk=last_chunk,
+                finish_reason=finish_reason,
+            )
 
     def _build_api_messages(self, messages: list[Message]) -> list[dict]:
         result: list[dict] = []
@@ -234,3 +252,44 @@ class OpenAIProvider(LLMProvider):
             else:
                 result.append({"role": msg.role, "content": msg.content})
         return result
+
+
+def _completion_metadata(
+    *,
+    response: Any | None = None,
+    chunk: Any | None = None,
+    finish_reason: str | None = None,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    source = response if response is not None else chunk
+    if source is None:
+        return metadata
+
+    for key in ("id", "model", "system_fingerprint", "created"):
+        value = getattr(source, key, None)
+        if value is not None:
+            metadata[key] = value
+
+    if finish_reason is None and response is not None:
+        choices = getattr(response, "choices", None) or []
+        if choices:
+            finish_reason = getattr(choices[0], "finish_reason", None)
+    if finish_reason:
+        metadata["finish_reason"] = finish_reason
+
+    usage = _usage_metadata(getattr(source, "usage", None))
+    if usage:
+        metadata["usage"] = usage
+    return metadata
+
+
+def _usage_metadata(usage: Any | None) -> dict[str, object]:
+    if usage is None:
+        return {}
+
+    metadata: dict[str, object] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens"):
+        value = getattr(usage, key, None)
+        if value is not None:
+            metadata[key] = value
+    return metadata

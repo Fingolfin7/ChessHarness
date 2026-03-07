@@ -12,10 +12,15 @@ class _FakeProvider(LLMProvider):
         self._chunks = chunks
         self.last_messages: list[Message] | None = None
         self.last_stream_kwargs: dict | None = None
+        self._last_response_metadata: dict[str, object] | None = None
 
     @property
     def supports_vision(self) -> bool:
         return self._supports_vision
+
+    @property
+    def last_response_metadata(self) -> dict[str, object] | None:
+        return self._last_response_metadata
 
     async def complete(
         self,
@@ -39,8 +44,8 @@ class _FakeProvider(LLMProvider):
             "max_tokens": max_tokens,
             "reasoning_effort": reasoning_effort,
         }
-        for c in self._chunks:
-            yield c
+        for chunk in self._chunks:
+            yield chunk
 
 
 def _state(**overrides) -> GameState:
@@ -68,13 +73,13 @@ class LLMPlayerTests(unittest.IsolatedAsyncioTestCase):
             chunks=["## Reasoning\nGood line\n\n", "## Move\ne2e4\n"],
         )
         player = LLMPlayer(name="P", provider=provider)
-        q: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue()
 
-        response = await player.get_move(_state(), chunk_queue=q)
+        response = await player.get_move(_state(), chunk_queue=queue)
 
         chunks: list[str] = []
-        while not q.empty():
-            chunks.append(q.get_nowait())
+        while not queue.empty():
+            chunks.append(queue.get_nowait())
         self.assertEqual("".join(chunks), response.raw)
         self.assertEqual(response.move, "e2e4")
         self.assertIn("Good line", response.reasoning)
@@ -94,6 +99,30 @@ class LLMPlayerTests(unittest.IsolatedAsyncioTestCase):
 
         await player.get_move(_state())
         self.assertEqual(provider.last_stream_kwargs, {"max_tokens": 2048, "reasoning_effort": "high"})
+
+    async def test_long_reasoning_without_move_section_does_not_parse_prose_move(self) -> None:
+        provider = _FakeProvider(
+            supports_vision=True,
+            chunks=[
+                "## Reasoning\n"
+                "White just played c3 to challenge the pawn chain, but the right move is to keep the bind.\n"
+                "Pushing to b3 would trap the knight.\n"
+            ],
+        )
+        player = LLMPlayer(name="P", provider=provider)
+
+        response = await player.get_move(_state())
+
+        self.assertEqual(response.move, "")
+        self.assertIn("White just played c3", response.reasoning)
+
+    async def test_bare_move_reply_still_parses_without_headers(self) -> None:
+        provider = _FakeProvider(supports_vision=True, chunks=["b3"])
+        player = LLMPlayer(name="P", provider=provider)
+
+        response = await player.get_move(_state())
+
+        self.assertEqual(response.move, "b3")
 
     async def test_history_is_carried_between_turns(self) -> None:
         provider = _FakeProvider(
@@ -131,3 +160,7 @@ class LLMPlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(user.image_bytes)
         self.assertIn("Position (FEN)", user.content)
         self.assertIn("ASCII-BOARD", user.content)
+
+
+if __name__ == "__main__":
+    unittest.main()

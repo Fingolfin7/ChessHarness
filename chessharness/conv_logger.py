@@ -1,13 +1,8 @@
 """
-Conversation logger — writes the full back-and-forth with one model to a text file.
+Conversation logger - writes the full back-and-forth with one model to a text file.
 
 Two loggers are created per game (one per player), both using the same game_id
-so their filenames sort together:
-
-    logs/game_20260225_143000_white_GPT4o.log
-    logs/game_20260225_143000_black_ClaudeOpus.log
-
-Each API call is recorded as a block showing the messages sent and the raw response.
+so their filenames sort together.
 """
 
 from __future__ import annotations
@@ -30,20 +25,15 @@ class ConversationLogger:
         color: str,
     ) -> None:
         log_dir.mkdir(parents=True, exist_ok=True)
-        self._player_name = player_name
         safe = _safe(player_name)
         self._path = log_dir / f"game_{game_id}_{color}_{safe}.log"
         self._write(
             f"{_SEP}\n"
-            f"  LLM Chess Harness — Conversation Log\n"
+            f"  LLM Chess Harness - Conversation Log\n"
             f"  {player_name} playing {color.upper()}\n"
             f"  Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"{_SEP}\n"
         )
-
-    # ------------------------------------------------------------------ #
-    # Public API                                                           #
-    # ------------------------------------------------------------------ #
 
     def log_request(
         self,
@@ -75,13 +65,15 @@ class ConversationLogger:
         ]
         self._write("\n".join(lines) + "\n")
 
-    # ------------------------------------------------------------------ #
-    # Internal                                                             #
-    # ------------------------------------------------------------------ #
+    def log_response_diagnostics(self, *, title: str, values: dict[str, object]) -> None:
+        lines = [f"\n[{title}]"]
+        for key, value in values.items():
+            lines.append(f"{key}: {value!r}")
+        self._write("\n".join(lines) + "\n")
 
     def _write(self, text: str) -> None:
-        with self._path.open("a", encoding="utf-8") as f:
-            f.write(text)
+        with self._path.open("a", encoding="utf-8") as handle:
+            handle.write(text)
 
     @property
     def path(self) -> Path:

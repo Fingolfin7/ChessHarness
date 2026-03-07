@@ -27,6 +27,11 @@ class LLMProvider(ABC):
         """True if this provider/model accepts image inputs."""
         ...
 
+    @property
+    def last_response_metadata(self) -> dict[str, object] | None:
+        """Best-effort provider completion metadata from the most recent call."""
+        return None
+
     @abstractmethod
     async def complete(
         self,

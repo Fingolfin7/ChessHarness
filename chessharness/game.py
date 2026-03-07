@@ -1,46 +1,35 @@
-﻿"""
-Async game loop â€” the core orchestrator.
-
-This module is UI-agnostic. It yields typed GameEvent objects and never prints,
-never writes files directly, and has no Rich/CLI dependencies.
-
-Consumers:
-  CLI  â†’ chessharness/cli/display.py
-  Web  â†’ FastAPI WebSocket handler (future)
-  Tests â†’ async for event in run_game(...): assert ...
-
-Usage:
-    async for event in run_game(config, white_player, black_player):
-        display_event(event)
+"""
+Async game loop - the core orchestrator.
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
-import chess
-
-logger = logging.getLogger(__name__)
 from datetime import datetime
+import logging
 from pathlib import Path
 from typing import AsyncGenerator
+
+import chess
 
 from chessharness.board import ChessBoard
 from chessharness.config import Config
 from chessharness.events import (
-    GameEvent,
-    GameStartEvent,
-    TurnStartEvent,
-    MoveRequestedEvent,
-    InvalidMoveEvent,
-    ReasoningChunkEvent,
-    MoveAppliedEvent,
     CheckEvent,
+    GameEvent,
     GameOverEvent,
+    GameStartEvent,
+    InvalidMoveEvent,
+    MoveAppliedEvent,
+    MoveRequestedEvent,
+    ReasoningChunkEvent,
+    TurnStartEvent,
 )
-from chessharness.players.base import Player, GameState
+from chessharness.players.base import GameState, Player
 from chessharness.providers.base import ProviderError
-from chessharness.renderer import render_ascii, render_png, is_png_available
+from chessharness.renderer import is_png_available, render_ascii, render_png
+
+logger = logging.getLogger(__name__)
 
 
 async def run_game(
@@ -99,17 +88,26 @@ async def run_game(
         previous_error: str | None = None
 
         for attempt in range(1, config.game.max_retries + 1):
-            yield MoveRequestedEvent(color=current_color, attempt_num=attempt, player_type=current_player.player_type)
+            logger.info(
+                "Requesting move [move=%s attempt=%s color=%s player=%s]",
+                board.fullmove_number,
+                attempt,
+                current_color,
+                current_player.name,
+            )
+            yield MoveRequestedEvent(
+                color=current_color,
+                attempt_num=attempt,
+                player_type=current_player.player_type,
+            )
 
             board_image: bytes | None = None
             if use_images:
-                # Get last move for highlight arrow (if any)
                 last_move = board._board.peek() if board._board.move_stack else None
                 board_image = render_png(board._board, last_move)
                 if board_image is None:
                     logger.warning(
-                        "Image mode requested but PNG render returned None [move=%s color=%s]. "
-                        "Falling back to text-only prompt for this request.",
+                        "Image mode requested but PNG render returned None [move=%s color=%s]. Falling back to text-only prompt for this request.",
                         board.fullmove_number,
                         current_color,
                     )
@@ -135,16 +133,13 @@ async def run_game(
                 attempt_num=attempt,
             )
 
-            # Stream chunks to consumers while waiting for the full response
             chunk_queue: asyncio.Queue = asyncio.Queue()
 
-            async def _get_and_signal(
-                player=current_player, s=state, q=chunk_queue
-            ):
+            async def _get_and_signal(player=current_player, s=state, q=chunk_queue):
                 try:
                     return await player.get_move(s, chunk_queue=q)
                 finally:
-                    await q.put(None)  # sentinel: signals completion
+                    await q.put(None)
 
             move_task = asyncio.create_task(_get_and_signal())
 
@@ -158,9 +153,15 @@ async def run_game(
                 response = await move_task
             except ProviderError as exc:
                 error = f"API error: {exc}"
-                logger.error("ProviderError on move %s attempt %d [%s %s]: %s",
-                             board.fullmove_number, attempt, current_color,
-                             current_player.name, exc, exc_info=True)
+                logger.error(
+                    "ProviderError on move %s attempt %d [%s %s]: %s",
+                    board.fullmove_number,
+                    attempt,
+                    current_color,
+                    current_player.name,
+                    exc,
+                    exc_info=True,
+                )
                 yield InvalidMoveEvent(
                     color=current_color,
                     attempted_move="",
@@ -173,9 +174,16 @@ async def run_game(
                 previous_error = error
                 continue
 
-            # --- Validate: non-empty response ---
             if not response.raw.strip():
                 error = "Model returned an empty response."
+                logger.warning(
+                    "Rejected empty response [move=%s attempt=%s color=%s player=%s provider_metadata=%s]",
+                    board.fullmove_number,
+                    attempt,
+                    current_color,
+                    current_player.name,
+                    response.provider_metadata,
+                )
                 yield InvalidMoveEvent(
                     color=current_color,
                     attempted_move="",
@@ -188,24 +196,34 @@ async def run_game(
                 previous_error = error
                 continue
 
-            # --- Validate: parse + legality ---
             parsed, error_kind = board.parse_move(response.move)
             if parsed is None:
                 if error_kind == "illegal":
                     error = f"'{response.move}' is illegal"
                     if config.game.show_legal_moves:
-                        error += " â€” choose from the legal moves listed above."
+                        error += " - choose from the legal moves listed above."
                 elif error_kind == "ambiguous":
                     error = (
-                        f"'{response.move}' is ambiguous â€” multiple pieces can make that move. "
+                        f"'{response.move}' is ambiguous - multiple pieces can make that move. "
                         f"Use a disambiguated form (e.g. include the file or rank: Rbd3, R1d3). "
                         f"Legal moves: {', '.join(board.legal_moves_san())}"
                     )
-                else:  # "format"
+                else:
                     error = (
                         f"'{response.move}' could not be parsed as a valid move. "
                         f"Use SAN notation (e.g. e4, Nf3, cxd4, O-O) or UCI (e.g. e2e4, g1f3, a7a8q)."
                     )
+                logger.warning(
+                    "Rejected move attempt [move=%s attempt=%s color=%s player=%s parsed_move=%r error_kind=%s raw_length=%s provider_metadata=%s]",
+                    board.fullmove_number,
+                    attempt,
+                    current_color,
+                    current_player.name,
+                    response.move,
+                    error_kind,
+                    len(response.raw),
+                    response.provider_metadata,
+                )
                 yield InvalidMoveEvent(
                     color=current_color,
                     attempted_move=response.move,
@@ -218,9 +236,18 @@ async def run_game(
                 previous_error = error
                 continue
 
-            # --- Apply the move ---
-            move_number_before = state.move_number  # capture before push (fullmove_number increments after black)
+            move_number_before = state.move_number
             san = board.push_move(parsed)
+            logger.info(
+                "Applying move [move=%s attempt=%s color=%s player=%s parsed_move=%r san=%s provider_metadata=%s]",
+                move_number_before,
+                attempt,
+                current_color,
+                current_player.name,
+                response.move,
+                san,
+                response.provider_metadata,
+            )
             if config.game.annotate_pgn and response.reasoning.strip():
                 board.annotate_last_move(_reasoning_comment(response.reasoning))
             yield MoveAppliedEvent(
@@ -235,10 +262,9 @@ async def run_game(
                 move_number=move_number_before,
             )
 
-            # Announce check (if the game isn't already over)
             if board.is_check and not board.is_game_over:
                 yield CheckEvent(
-                    color_in_check=board.turn,  # the side that is now to move is in check
+                    color_in_check=board.turn,
                     checking_move_san=san,
                 )
 
@@ -246,14 +272,20 @@ async def run_game(
             break
 
         if not applied:
-            # Player forfeits by exhausting retries
             winner = black_player if current_color == "white" else white_player
             result: str = "0-1" if current_color == "white" else "1-0"
             board.set_result(result)
             pgn = board.to_pgn(include_comments=config.game.annotate_pgn)
-
+            logger.warning(
+                "Max retries exceeded [move=%s color=%s player=%s last_invalid=%r last_error=%s]",
+                board.fullmove_number,
+                current_color,
+                current_player.name,
+                previous_invalid,
+                previous_error,
+            )
             yield GameOverEvent(
-                result=result,  # type: ignore[arg-type]
+                result=result,
                 reason="max_retries_exceeded",
                 winner_name=winner.name,
                 pgn=pgn,
@@ -263,7 +295,6 @@ async def run_game(
                 await _save_pgn(pgn, config.pgn_dir_path)
             return
 
-    # --- Normal game termination ---
     result = board.result()
     board.set_result(result)
     pgn = board.to_pgn(include_comments=config.game.annotate_pgn)
@@ -277,7 +308,7 @@ async def run_game(
 
     yield GameOverEvent(
         result=result,
-        reason=board.game_over_reason(),  # type: ignore[arg-type]
+        reason=board.game_over_reason(),
         winner_name=winner_name,
         pgn=pgn,
         total_moves=len(board.move_history_san()),
@@ -293,9 +324,7 @@ async def _save_pgn(pgn: str, pgn_dir: Path) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     pgn_path = pgn_dir / f"game_{timestamp}.pgn"
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(
-        None, lambda: pgn_path.write_text(pgn, encoding="utf-8")
-    )
+    await loop.run_in_executor(None, lambda: pgn_path.write_text(pgn, encoding="utf-8"))
 
 
 def _reasoning_comment(reasoning: str) -> str:
@@ -305,4 +334,3 @@ def _reasoning_comment(reasoning: str) -> str:
     if len(text) > 2000:
         return text[:1997] + "..."
     return text
-

@@ -1,7 +1,7 @@
-﻿"""
+"""
 Abstract Player interface and the GameState snapshot passed to each player per turn.
 
-GameState contains everything a player needs to make a decision â€” whether that's
+GameState contains everything a player needs to make a decision - whether that's
 an LLM API call, stdin input, a chess engine query, or a remote API call.
 """
 
@@ -17,9 +17,11 @@ from chessharness.events import Color
 @dataclass
 class MoveResponse:
     """Returned by Player.get_move(). Carries the raw output, parsed reasoning, and extracted move."""
-    raw: str        # unmodified text from the model / human / engine
-    move: str       # extracted UCI string (may still be invalid â€” game.py validates)
-    reasoning: str = ""  # content from the ## Reasoning section (empty for human/engine)
+
+    raw: str
+    move: str
+    reasoning: str = ""
+    provider_metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
@@ -59,10 +61,10 @@ class Player(ABC):
         """
         Given the current game state, return a MoveResponse.
 
-        MoveResponse.raw  â€” the unmodified output (full model text, stdin line, etc.)
-        MoveResponse.move â€” the extracted UCI string to validate
+        MoveResponse.raw  - the unmodified output (full model text, stdin line, etc.)
+        MoveResponse.move - the extracted move string to validate
 
-        The game loop validates move â€” players may return invalid moves;
+        The game loop validates move - players may return invalid moves;
         the loop will call get_move() again with retry context.
 
         Must be async. Implementations may await LLM API calls, stdin reads,
@@ -72,4 +74,3 @@ class Player(ABC):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name={self.name!r})"
-
