@@ -85,7 +85,8 @@ function applyEvent(state, event) {
       return {
         ...state, thinking: false,
         invalidAttempt: { color: event.color, move: event.attempted_move,
-                          error: event.error, attempt: event.attempt_num },
+                          error: event.error, attempt: event.attempt_num,
+                          providerMetadata: event.provider_metadata ?? {} },
       }
     case 'MoveAppliedEvent':
       return {

@@ -64,6 +64,7 @@ class InvalidMoveEvent:
     reasoning: str       # parsed ## Reasoning section (empty string if absent)
     error: str
     attempt_num: int
+    provider_metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class MoveAppliedEvent:
     board_ascii_after: str
     is_check: bool
     move_number: int
+    provider_metadata: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

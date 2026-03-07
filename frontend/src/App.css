@@ -384,6 +384,7 @@ html, body, #root {
 
 .last-move-san { font-family: 'Consolas', monospace; font-size: 1rem; font-weight: 600; color: var(--dark-sq); }
 .invalid-badge  { color: var(--error); font-size: 0.82rem; display: flex; flex-direction: column; gap: 2px; align-items: flex-end; max-width: 100%; overflow: hidden; }
+.invalid-detail { font-size: 0.7rem; opacity: 0.9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .invalid-error  { font-size: 0.72rem; opacity: 0.85; font-family: 'Consolas', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
 /* ── Move history ───────────────────────────────────────────────────────── */

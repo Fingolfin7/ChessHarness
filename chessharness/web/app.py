@@ -1071,6 +1071,7 @@ class _TournamentBroadcaster:
                 "move": game_event.get("attempted_move"),
                 "error": game_event.get("error"),
                 "attempt": game_event.get("attempt_num"),
+                "providerMetadata": game_event.get("provider_metadata") or {},
             }
         elif event_type == "MoveAppliedEvent":
             fen_after = game_event.get("fen_after")
@@ -1873,6 +1874,7 @@ class _SingleGameBroadcaster:
                 "move": payload.get("attempted_move"),
                 "error": payload.get("error"),
                 "attempt": payload.get("attempt_num"),
+                "providerMetadata": payload.get("provider_metadata") or {},
             }
             return
         if event_type == "MoveAppliedEvent":

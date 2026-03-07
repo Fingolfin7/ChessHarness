@@ -68,13 +68,30 @@ class ProviderMetadataTests(unittest.TestCase):
             model_version="gemini-2.5-pro",
             candidates=[_Obj(finish_reason="MAX_TOKENS", safety_ratings=["safe"])],
             prompt_feedback="ok",
-            usage_metadata=_Obj(prompt_token_count=12, candidates_token_count=8, total_token_count=20),
+            usage_metadata=_Obj(
+                prompt_token_count=12,
+                candidates_token_count=8,
+                total_token_count=20,
+                thoughts_token_count=17,
+                cached_content_token_count=4,
+                tool_use_prompt_token_count=3,
+            ),
         )
 
         metadata = google_response_metadata(response)
 
         self.assertEqual(metadata["finish_reason"], "MAX_TOKENS")
-        self.assertEqual(metadata["usage"], {"prompt_token_count": 12, "candidates_token_count": 8, "total_token_count": 20})
+        self.assertEqual(
+            metadata["usage"],
+            {
+                "prompt_token_count": 12,
+                "candidates_token_count": 8,
+                "total_token_count": 20,
+                "thoughts_token_count": 17,
+                "cached_content_token_count": 4,
+                "tool_use_prompt_token_count": 3,
+            },
+        )
 
 
 if __name__ == "__main__":

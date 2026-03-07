@@ -111,6 +111,7 @@ function applyEvent(state, event) {
           move: event.attempted_move,
           error: event.error,
           attempt: event.attempt_num,
+          providerMetadata: event.provider_metadata ?? {},
         },
       }
 

@@ -167,10 +167,29 @@ def _response_metadata(response: Any) -> dict[str, object]:
     usage = getattr(response, "usage_metadata", None)
     if usage is not None:
         usage_metadata = {}
-        for key in ("prompt_token_count", "candidates_token_count", "total_token_count"):
+        for key in (
+            "prompt_token_count",
+            "candidates_token_count",
+            "total_token_count",
+            "thoughts_token_count",
+            "cached_content_token_count",
+            "tool_use_prompt_token_count",
+        ):
             value = getattr(usage, key, None)
             if value is not None:
                 usage_metadata[key] = value
+        prompt_tokens_details = getattr(usage, "prompt_tokens_details", None)
+        if prompt_tokens_details:
+            usage_metadata["prompt_tokens_details"] = [str(detail) for detail in prompt_tokens_details]
+        cache_tokens_details = getattr(usage, "cache_tokens_details", None)
+        if cache_tokens_details:
+            usage_metadata["cache_tokens_details"] = [str(detail) for detail in cache_tokens_details]
+        candidates_tokens_details = getattr(usage, "candidates_tokens_details", None)
+        if candidates_tokens_details:
+            usage_metadata["candidates_tokens_details"] = [str(detail) for detail in candidates_tokens_details]
+        tool_use_prompt_tokens_details = getattr(usage, "tool_use_prompt_tokens_details", None)
+        if tool_use_prompt_tokens_details:
+            usage_metadata["tool_use_prompt_tokens_details"] = [str(detail) for detail in tool_use_prompt_tokens_details]
         if usage_metadata:
             metadata["usage"] = usage_metadata
     return metadata

@@ -169,6 +169,7 @@ async def run_game(
                     reasoning="",
                     error=error,
                     attempt_num=attempt,
+                    provider_metadata={},
                 )
                 previous_invalid = ""
                 previous_error = error
@@ -189,11 +190,12 @@ async def run_game(
                     attempted_move="",
                     raw_response="",
                     reasoning="",
-                    error=error,
+                    error=_augment_error_with_provider_context(error, response.provider_metadata),
                     attempt_num=attempt,
+                    provider_metadata=response.provider_metadata,
                 )
                 previous_invalid = ""
-                previous_error = error
+                previous_error = _augment_error_with_provider_context(error, response.provider_metadata)
                 continue
 
             parsed, error_kind = board.parse_move(response.move)
@@ -213,6 +215,7 @@ async def run_game(
                         f"'{response.move}' could not be parsed as a valid move. "
                         f"Use SAN notation (e.g. e4, Nf3, cxd4, O-O) or UCI (e.g. e2e4, g1f3, a7a8q)."
                     )
+                error = _augment_error_with_provider_context(error, response.provider_metadata)
                 logger.warning(
                     "Rejected move attempt [move=%s attempt=%s color=%s player=%s parsed_move=%r error_kind=%s raw_length=%s provider_metadata=%s]",
                     board.fullmove_number,
@@ -231,6 +234,7 @@ async def run_game(
                     reasoning=response.reasoning,
                     error=error,
                     attempt_num=attempt,
+                    provider_metadata=response.provider_metadata,
                 )
                 previous_invalid = response.move
                 previous_error = error
@@ -256,6 +260,7 @@ async def run_game(
                 move_san=san,
                 raw_response=response.raw,
                 reasoning=response.reasoning,
+                provider_metadata=response.provider_metadata,
                 fen_after=board.fen,
                 board_ascii_after=render_ascii(board._board),
                 is_check=board.is_check,
@@ -334,3 +339,21 @@ def _reasoning_comment(reasoning: str) -> str:
     if len(text) > 2000:
         return text[:1997] + "..."
     return text
+
+
+def _augment_error_with_provider_context(error: str, provider_metadata: dict[str, object]) -> str:
+    finish_reason = str(provider_metadata.get("finish_reason") or "").upper()
+    if "MAX_TOKENS" not in finish_reason:
+        return error
+
+    usage = provider_metadata.get("usage")
+    if isinstance(usage, dict):
+        prompt_tokens = usage.get("prompt_token_count") or usage.get("prompt_tokens")
+        output_tokens = usage.get("candidates_token_count") or usage.get("completion_tokens") or usage.get("output_tokens")
+        if prompt_tokens is not None and output_tokens is not None:
+            return (
+                f"{error} Provider stopped generation after hitting the output token limit "
+                f"(prompt={prompt_tokens}, output={output_tokens})."
+            )
+
+    return f"{error} Provider stopped generation after hitting the output token limit."
