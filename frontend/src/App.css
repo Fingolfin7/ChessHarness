@@ -1554,3 +1554,73 @@ html, body, #root {
   color: var(--text-dim);
   letter-spacing: 0.04em;
 }
+
+.player-kind-select {
+  width: 100%;
+}
+
+.player-name-input {
+  width: 100%;
+}
+
+
+.board-wrapper--interactive-parent {
+  position: relative;
+}
+
+.promotion-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.28);
+  border-radius: 16px;
+  pointer-events: auto;
+}
+
+.promotion-dialog {
+  width: min(280px, calc(100% - 24px));
+  background: rgba(248, 244, 234, 0.98);
+  color: #1f2937;
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+  padding: 1rem;
+}
+
+.promotion-title {
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.promotion-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.promotion-option,
+.promotion-cancel {
+  border: 1px solid rgba(31, 41, 55, 0.12);
+  background: white;
+  border-radius: 12px;
+  padding: 0.8rem 0.75rem;
+  cursor: pointer;
+}
+
+.promotion-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.promotion-piece {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.promotion-cancel {
+  width: 100%;
+  margin-top: 0.75rem;
+}

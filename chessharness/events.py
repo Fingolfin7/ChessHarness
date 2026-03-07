@@ -1,5 +1,5 @@
-"""
-Typed event dataclasses — the shared language between the game loop and any consumer.
+﻿"""
+Typed event dataclasses - the shared language between the game loop and any consumer.
 
 The game loop (game.py) yields these. The CLI, web UI, or test harness consumes them.
 All events are frozen (immutable) so they're safe to pass across async boundaries
@@ -24,6 +24,7 @@ GameOverReason = Literal[
     "max_retries_exceeded",
     "interrupted",
 ]
+PlayerType = Literal["llm", "human", "engine", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,8 @@ class GameStartEvent:
     white_name: str
     black_name: str
     starting_fen: str = "start"
+    white_player_type: PlayerType = "unknown"
+    black_player_type: PlayerType = "unknown"
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -43,12 +46,14 @@ class TurnStartEvent:
     board_ascii: str
     legal_moves_san: list[str]
     move_history_san: list[str]
+    player_type: PlayerType = "unknown"
 
 
 @dataclass(frozen=True)
 class MoveRequestedEvent:
     color: Color
     attempt_num: int
+    player_type: PlayerType = "unknown"
 
 
 @dataclass(frozen=True)
@@ -96,7 +101,6 @@ class GameOverEvent:
     timestamp: datetime = field(default_factory=datetime.now)
 
 
-# Union type for type-safe pattern matching in consumers
 GameEvent = (
     GameStartEvent
     | TurnStartEvent

@@ -23,6 +23,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from chessharness.events import GameStartEvent, MoveAppliedEvent
+from chessharness.players.human import QueuedHumanPlayer
 from chessharness.tournaments.events import (
     MatchGameEvent,
     TournamentStartEvent,
@@ -358,3 +359,65 @@ class SingleGameReplayTests(unittest.TestCase):
         self.assertEqual(payload["type"], "GameSnapshotEvent")
         self.assertEqual(payload["fen"], "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1")
         self.assertEqual(payload["players"]["white"]["name"], "Alpha")
+
+
+class HumanVsLlmStateTests(unittest.TestCase):
+
+    def test_single_game_broadcaster_marks_human_turn_as_input_pending(self):
+        broadcaster = web_app._SingleGameBroadcaster()
+        broadcaster._apply_event({
+            "type": "GameStartEvent",
+            "white_name": "Human",
+            "black_name": "Bot",
+            "white_player_type": "human",
+            "black_player_type": "llm",
+        })
+        broadcaster._apply_event({
+            "type": "TurnStartEvent",
+            "color": "white",
+            "player_name": "Human",
+            "move_number": 1,
+            "fen": "start",
+            "board_ascii": "",
+            "legal_moves_san": ["e4", "d4"],
+            "move_history_san": [],
+            "player_type": "human",
+        })
+        broadcaster._apply_event({
+            "type": "MoveRequestedEvent",
+            "color": "white",
+            "attempt_num": 1,
+            "player_type": "human",
+        })
+
+        self.assertFalse(broadcaster._state["thinking"])
+        self.assertEqual(broadcaster._state["players"]["white"]["type"], "human")
+        self.assertEqual(
+            broadcaster._state["awaitingHumanInput"],
+            {"color": "white", "attempt": 1, "legalMoves": ["e4", "d4"]},
+        )
+
+    def test_submit_human_move_defaults_to_awaiting_color(self):
+        broadcaster = web_app._SingleGameBroadcaster()
+        white = QueuedHumanPlayer("Human")
+        black = QueuedHumanPlayer("Other Human")
+        broadcaster._session = web_app._SingleGameSession(
+            session_config=object(),
+            white_player=white,
+            black_player=black,
+            player_specs={
+                "white": {"kind": "human", "name": "Human"},
+                "black": {"kind": "human", "name": "Other Human"},
+            },
+        )
+        broadcaster._state = {
+            **broadcaster._initial_state(),
+            "phase": "playing",
+            "awaitingHumanInput": {"color": "white", "attempt": 1, "legalMoves": ["e4"]},
+        }
+
+        ok, error = broadcaster.submit_human_move("e4")
+
+        self.assertTrue(ok)
+        self.assertIsNone(error)
+        self.assertEqual(white._moves.get_nowait(), "e4")

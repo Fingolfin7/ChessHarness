@@ -1,5 +1,5 @@
-"""
-EnginePlayer stub — UCI chess engine opponent (e.g., Stockfish).
+﻿"""
+EnginePlayer stub â€” UCI chess engine opponent (e.g., Stockfish).
 
 Implementation outline (not yet wired):
   1. Launch engine: transport, engine = await chess.engine.popen_uci("stockfish")
@@ -35,7 +35,7 @@ class EnginePlayer(Player):
         engine_path: str = "stockfish",
         think_time: float = 1.0,
     ) -> None:
-        super().__init__(name)
+        super().__init__(name, player_type="engine")
         self._engine_path = engine_path
         self._think_time = think_time
 
@@ -48,3 +48,4 @@ class EnginePlayer(Player):
     async def close(self) -> None:
         """Shut down the engine process cleanly."""
         pass
+

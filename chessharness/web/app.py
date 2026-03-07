@@ -35,7 +35,7 @@ from chessharness.auth_store import load_auth_tokens, save_auth_tokens
 from chessharness.config import ModelEntry, ProviderConfig, load_config
 from chessharness.conv_logger import ConversationLogger
 from chessharness.game import run_game
-from chessharness.players import create_player
+from chessharness.players import QueuedHumanPlayer, create_player
 from chessharness.players.llm import LLMPlayer
 from chessharness.providers import create_provider
 
@@ -1619,16 +1619,75 @@ def _apply_ui_game_settings(ui_settings: dict) -> object:
     return game_cfg
 
 
+
+def _player_kind_from_spec(spec: dict) -> str:
+    kind = str(spec.get("kind") or "").strip().lower()
+    if kind in {"llm", "human", "engine"}:
+        return kind
+    provider = str(spec.get("provider") or "").strip().lower()
+    if provider in {"human", "engine"}:
+        return provider
+    return "llm"
+
+
+def _normalize_player_spec(spec: dict, color: str) -> dict:
+    player_type = _player_kind_from_spec(spec)
+    default_name = f"Human ({color.title()})" if player_type == "human" else color.title()
+    normalized = {
+        "kind": player_type,
+        "name": (spec.get("name") or default_name).strip(),
+    }
+    if player_type == "llm":
+        normalized["provider"] = spec["provider"]
+        normalized["model_id"] = spec["model_id"]
+    return normalized
+
+
+class _SingleGameSession:
+    def __init__(
+        self,
+        session_config: object,
+        white_player,
+        black_player,
+        player_specs: dict[str, dict],
+    ) -> None:
+        self.config = session_config
+        self.white_player = white_player
+        self.black_player = black_player
+        self.player_specs = deepcopy(player_specs)
+        self._human_players = {
+            color: player
+            for color, player in (("white", white_player), ("black", black_player))
+            if isinstance(player, QueuedHumanPlayer)
+        }
+
+    def submit_human_move(self, move: str, color: str | None = None) -> tuple[bool, str | None]:
+        move_text = (move or "").strip()
+        if not move_text:
+            return False, "Move cannot be empty."
+        if color:
+            target = self._human_players.get(color)
+            if target is None:
+                return False, f"{color.title()} is not controlled by a human player."
+            target.submit_move(move_text)
+            return True, None
+        if len(self._human_players) == 1:
+            next(iter(self._human_players.values())).submit_move(move_text)
+            return True, None
+        return False, "Multiple human players are active; specify a color."
+
+
 async def _build_single_game_players(start_payload: dict):
-    w = start_payload["white"]
-    b = start_payload["black"]
     ui_settings = start_payload.get("settings") or {}
     game_cfg = _apply_ui_game_settings(ui_settings)
     session_config = replace(config, game=game_cfg)
 
+    player_specs = {
+        "white": _normalize_player_spec(start_payload["white"], "white"),
+        "black": _normalize_player_spec(start_payload["black"], "black"),
+    }
+
     providers_cfg = await _providers_with_auth_overrides_async()
-    white_model = _find_model_entry(providers_cfg, w["provider"], w["model_id"])
-    black_model = _find_model_entry(providers_cfg, b["provider"], b["model_id"])
     copilot_refresher = _make_copilot_token_refresher()
     openai_chatgpt_refresher = _make_openai_chatgpt_token_refresher()
 
@@ -1639,39 +1698,34 @@ async def _build_single_game_players(start_payload: dict):
             return openai_chatgpt_refresher
         return None
 
-    white_provider = create_provider(
-        w["provider"],
-        w["model_id"],
-        providers_cfg,
-        supports_vision_override=(white_model.supports_vision if white_model else None),
-        token_refresher=_token_refresher_for(w["provider"]),
-    )
-    black_provider = create_provider(
-        b["provider"],
-        b["model_id"],
-        providers_cfg,
-        supports_vision_override=(black_model.supports_vision if black_model else None),
-        token_refresher=_token_refresher_for(b["provider"]),
-    )
+    def _build_player(spec: dict):
+        if spec["kind"] == "human":
+            return QueuedHumanPlayer(name=spec["name"])
+        if spec["kind"] == "engine":
+            return create_player("engine", spec["name"])
 
-    white_player = create_player(
-        w["provider"],
-        w["name"],
-        white_provider,
-        session_config.game.show_legal_moves,
-        session_config.game.move_timeout,
-        session_config.game.max_output_tokens,
-        session_config.game.reasoning_effort,
-    )
-    black_player = create_player(
-        b["provider"],
-        b["name"],
-        black_provider,
-        session_config.game.show_legal_moves,
-        session_config.game.move_timeout,
-        session_config.game.max_output_tokens,
-        session_config.game.reasoning_effort,
-    )
+        provider_name = spec["provider"]
+        model_id = spec["model_id"]
+        model_entry = _find_model_entry(providers_cfg, provider_name, model_id)
+        provider = create_provider(
+            provider_name,
+            model_id,
+            providers_cfg,
+            supports_vision_override=(model_entry.supports_vision if model_entry else None),
+            token_refresher=_token_refresher_for(provider_name),
+        )
+        return create_player(
+            provider_name,
+            spec["name"],
+            provider,
+            session_config.game.show_legal_moves,
+            session_config.game.move_timeout,
+            session_config.game.max_output_tokens,
+            session_config.game.reasoning_effort,
+        )
+
+    white_player = _build_player(player_specs["white"])
+    black_player = _build_player(player_specs["black"])
 
     game_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = Path("./logs")
@@ -1684,8 +1738,7 @@ async def _build_single_game_players(start_payload: dict):
                 color=color,
             )
 
-    return session_config, white_player, black_player
-
+    return _SingleGameSession(session_config, white_player, black_player, player_specs)
 
 class _SingleGameBroadcaster:
     def __init__(self) -> None:
@@ -1694,6 +1747,7 @@ class _SingleGameBroadcaster:
         self._state: dict = self._initial_state()
         self._task: asyncio.Task | None = None
         self._stop_event: asyncio.Event | None = None
+        self._session: _SingleGameSession | None = None
 
     @staticmethod
     def _initial_state() -> dict:
@@ -1707,6 +1761,8 @@ class _SingleGameBroadcaster:
             "reasoning": {"white": "", "black": ""},
             "moves": [],
             "plies": [],
+            "legalMoves": [],
+            "awaitingHumanInput": None,
             "invalidAttempt": None,
             "result": None,
             "error": None,
@@ -1732,6 +1788,18 @@ class _SingleGameBroadcaster:
     def snapshot_payload(self) -> dict:
         return {"type": "GameSnapshotEvent", **deepcopy(self._state)}
 
+    def submit_human_move(self, move: str, color: str | None = None) -> tuple[bool, str | None]:
+        if self._session is None:
+            return False, "No active game."
+        awaiting = self._state.get("awaitingHumanInput")
+        if color is None and isinstance(awaiting, dict):
+            awaiting_color = awaiting.get("color")
+            if awaiting_color in {"white", "black"}:
+                color = awaiting_color
+        if color is not None and awaiting and color != awaiting.get("color"):
+            return False, f"It is not {color}'s turn to move."
+        return self._session.submit_human_move(move, color)
+
     def _update_moves(self, moves: list[dict], event: dict) -> list[dict]:
         color = event.get("color")
         move_number = event.get("move_number")
@@ -1755,23 +1823,40 @@ class _SingleGameBroadcaster:
                 "phase": "playing",
                 "fen": payload.get("starting_fen") or "start",
                 "players": {
-                    "white": {"name": payload.get("white_name")},
-                    "black": {"name": payload.get("black_name")},
+                    "white": {
+                        "name": payload.get("white_name"),
+                        "type": payload.get("white_player_type") or "unknown",
+                    },
+                    "black": {
+                        "name": payload.get("black_name"),
+                        "type": payload.get("black_player_type") or "unknown",
+                    },
                 },
             }
             return
         if event_type == "TurnStartEvent":
             if payload.get("color") in {"white", "black"}:
                 self._state["turn"] = payload["color"]
+            self._state["legalMoves"] = payload.get("legal_moves_san") or []
             return
         if event_type == "MoveRequestedEvent":
             color = payload.get("color")
-            self._state["thinking"] = True
+            player_type = payload.get("player_type") or "unknown"
             self._state["invalidAttempt"] = None
+            self._state["awaitingHumanInput"] = None
             if color in {"white", "black"}:
                 reasoning = dict(self._state.get("reasoning") or {"white": "", "black": ""})
                 reasoning[color] = ""
                 self._state["reasoning"] = reasoning
+            if player_type == "human":
+                self._state["thinking"] = False
+                self._state["awaitingHumanInput"] = {
+                    "color": color,
+                    "attempt": payload.get("attempt_num"),
+                    "legalMoves": list(self._state.get("legalMoves") or []),
+                }
+            else:
+                self._state["thinking"] = True
             return
         if event_type == "ReasoningChunkEvent":
             color = payload.get("color")
@@ -1782,6 +1867,7 @@ class _SingleGameBroadcaster:
             return
         if event_type == "InvalidMoveEvent":
             self._state["thinking"] = False
+            self._state["awaitingHumanInput"] = None
             self._state["invalidAttempt"] = {
                 "color": payload.get("color"),
                 "move": payload.get("attempted_move"),
@@ -1795,6 +1881,7 @@ class _SingleGameBroadcaster:
             self._state["fen"] = payload.get("fen_after")
             self._state["lastMove"] = last_move
             self._state["thinking"] = False
+            self._state["awaitingHumanInput"] = None
             self._state["invalidAttempt"] = None
             self._state["moves"] = self._update_moves(self._state.get("moves", []), payload)
             self._state["plies"] = [
@@ -1818,6 +1905,7 @@ class _SingleGameBroadcaster:
         if event_type == "GameOverEvent":
             self._state["phase"] = "over"
             self._state["thinking"] = False
+            self._state["awaitingHumanInput"] = None
             self._state["result"] = {
                 "result": payload.get("result"),
                 "reason": payload.get("reason"),
@@ -1828,6 +1916,7 @@ class _SingleGameBroadcaster:
         if event_type == "error":
             self._state["error"] = payload.get("message")
             self._state["thinking"] = False
+            self._state["awaitingHumanInput"] = None
             return
 
     @staticmethod
@@ -1857,6 +1946,7 @@ class _SingleGameBroadcaster:
             raise RuntimeError("A game is already running.")
         self._log.clear()
         self._state = {**self._initial_state(), "phase": "playing", "error": None}
+        self._session = None
         self._stop_event = asyncio.Event()
         self._task = asyncio.create_task(self._run(start_payload, self._stop_event))
 
@@ -1868,13 +1958,16 @@ class _SingleGameBroadcaster:
 
     async def _run(self, start_payload: dict, stop_event: asyncio.Event) -> None:
         try:
-            session_config, white_player, black_player = await _build_single_game_players(start_payload)
-            async for event in run_game(session_config, white_player, black_player, stop_event):
+            session = await _build_single_game_players(start_payload)
+            self._session = session
+            async for event in run_game(session.config, session.white_player, session.black_player, stop_event):
                 payload = {"type": type(event).__name__, **dataclasses.asdict(event)}
                 await self._broadcast(payload)
         except Exception as exc:
             logger.error("Single game error: %s", exc, exc_info=True)
             await self._broadcast({"type": "error", "message": str(exc)})
+        finally:
+            self._session = None
 
 
 _single_game_broadcaster = _SingleGameBroadcaster()
@@ -1925,6 +2018,13 @@ async def game_ws(ws: WebSocket) -> None:
                         _single_game_broadcaster.start(msg)
                     except RuntimeError as exc:
                         await ws.send_text(_to_json({"type": "error", "message": str(exc)}))
+                elif msg_type == "submit_move":
+                    ok, error = _single_game_broadcaster.submit_human_move(
+                        str(msg.get("move") or ""),
+                        msg.get("color"),
+                    )
+                    if not ok and error:
+                        await ws.send_text(_to_json({"type": "error", "message": error}))
 
         send_task = asyncio.create_task(_send_loop())
         recv_task = asyncio.create_task(_receive_loop())
@@ -1966,4 +2066,8 @@ if _DIST.exists():
     @app.get("/{full_path:path}")
     async def spa(full_path: str) -> FileResponse:
         return FileResponse(_DIST / "index.html")
+
+
+
+
 

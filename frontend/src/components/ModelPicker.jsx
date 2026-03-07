@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ModelDropdown, { VisionIcon } from './ModelDropdown.jsx'
 import { providerLabel, compareProviderNames } from '../utils/providerLabels.js'
 
@@ -9,8 +9,12 @@ export default function ModelPicker({
   onChatGPTCodexConnect,
   onStart, error, defaultSettings,
 }) {
+  const [whiteMode, setWhiteMode] = useState('llm')
+  const [blackMode, setBlackMode] = useState('llm')
   const [white, setWhite] = useState('')
   const [black, setBlack] = useState('')
+  const [whiteHumanName, setWhiteHumanName] = useState('Human (White)')
+  const [blackHumanName, setBlackHumanName] = useState('Human (Black)')
   const [tokens, setTokens] = useState({})
   const [authMessage, setAuthMessage] = useState('')
   const [settings, setSettings] = useState({
@@ -51,27 +55,49 @@ export default function ModelPicker({
   // Clear selections when a previously chosen model's provider is disconnected
   useEffect(() => {
     if (!authReady) return
-    if (white) {
+    if (whiteMode === 'llm' && white) {
       try {
         const wm = JSON.parse(white)
         if (!authProviders[wm.provider]) setWhite('')
       } catch { setWhite('') }
     }
-    if (black) {
+    if (blackMode === 'llm' && black) {
       try {
         const bm = JSON.parse(black)
         if (!authProviders[bm.provider]) setBlack('')
       } catch { setBlack('') }
     }
-  }, [authProviders, authReady]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authProviders, authReady, whiteMode, blackMode, white, black])
+
+  const buildPlayerSpec = (mode, value, humanName, color) => {
+    if (mode === 'human') {
+      return {
+        kind: 'human',
+        name: (humanName || `Human (${color})`).trim() || `Human (${color})`,
+      }
+    }
+    if (!value) return null
+    const model = JSON.parse(value)
+    return {
+      kind: 'llm',
+      provider: model.provider,
+      model_id: model.id,
+      name: model.name,
+    }
+  }
+
+  const canStart = (
+    (whiteMode === 'human' || !!white) &&
+    (blackMode === 'human' || !!black)
+  )
 
   const handleStart = () => {
-    if (!white || !black) return
-    const wm = JSON.parse(white)
-    const bm = JSON.parse(black)
+    const whiteSpec = buildPlayerSpec(whiteMode, white, whiteHumanName, 'White')
+    const blackSpec = buildPlayerSpec(blackMode, black, blackHumanName, 'Black')
+    if (!whiteSpec || !blackSpec) return
     onStart(
-      { provider: wm.provider, model_id: wm.id, name: wm.name },
-      { provider: bm.provider, model_id: bm.id, name: bm.name },
+      whiteSpec,
+      blackSpec,
       {
         max_retries: settings.maxRetries,
         show_legal_moves: settings.showLegalMoves,
@@ -90,7 +116,7 @@ export default function ModelPicker({
       setAuthMessage(`Enter a token for ${provider} first.`)
       return
     }
-    setAuthMessage(`Verifying ${provider}…`)
+    setAuthMessage(`Verifying ${provider}...`)
     const result = await onConnect(provider, token)
     if (result.ok) {
       setAuthMessage(`Connected ${provider}.`)
@@ -120,7 +146,7 @@ export default function ModelPicker({
     }
   }
 
-  // ── Copilot device flow ────────────────────────────────────────────────── //
+  // â”€â”€ Copilot device flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ //
 
   const cancelCopilotFlow = useCallback(() => {
     clearTimeout(pollTimerRef.current)
@@ -173,7 +199,7 @@ export default function ModelPicker({
       } else if (poll.status !== 'pending') {
         stopPoll({ status: 'error', error: poll.error || `Unexpected response: ${JSON.stringify(poll)}` })
       } else {
-        // Still pending — schedule next poll only after this one completed
+        // Still pending â€” schedule next poll only after this one completed
         pollTimerRef.current = setTimeout(doPoll, intervalMs)
       }
     }
@@ -225,7 +251,7 @@ export default function ModelPicker({
                           and enter:
                         </p>
                         <div className="device-code">{copilotFlow.user_code}</div>
-                        <p className="device-flow-waiting">Waiting for authorization…</p>
+                        <p className="device-flow-waiting">Waiting for authorization...</p>
                         <p className="device-flow-note">
                           If sign-in fails, use a{' '}
                           <button className="btn-link" onClick={cancelCopilotFlow}>
@@ -330,7 +356,7 @@ export default function ModelPicker({
 
         <div className="setup-main">
           <div className="setup-logo">
-            <span className="setup-king">♔</span>
+            <span className="setup-king">{"\u2654"}</span>
             <h1>ChessHarness</h1>
             <p className="setup-subtitle">LLM Chess Arena</p>
           </div>
@@ -340,34 +366,76 @@ export default function ModelPicker({
           <div className="player-selects">
             <div className="player-select">
               <label>
-                <span className="select-piece white-piece">♔</span>
+                <span className="select-piece white-piece">{"♔"}</span>
                 White
               </label>
-              <ModelDropdown
-                large
-                value={white}
-                modelsByProvider={modelsByProvider}
-                onChange={setWhite}
-                placeholder={!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider' : 'Select model…'}
-                disabled={!authReady}
-              />
+              <select
+                className="settings-select player-kind-select"
+                value={whiteMode}
+                onChange={e => setWhiteMode(e.target.value)}
+              >
+                <option value="llm">LLM</option>
+                <option value="human">Human</option>
+              </select>
+              {whiteMode === 'llm' ? (
+                <ModelDropdown
+                  large
+                  value={white}
+                  modelsByProvider={modelsByProvider}
+                  onChange={setWhite}
+                  placeholder={!authReady ? 'Checking providers...' : availableModels.length === 0 ? 'Connect a provider' : 'Select model...'}
+                  disabled={!authReady}
+                />
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    className="settings-fen player-name-input"
+                    value={whiteHumanName}
+                    onChange={e => setWhiteHumanName(e.target.value)}
+                    placeholder="Human (White)"
+                  />
+                  <p className="human-help">Moves will be entered from the live board when it is White's turn.</p>
+                </>
+              )}
             </div>
 
             <div className="vs-divider">VS</div>
 
             <div className="player-select">
               <label>
-                <span className="select-piece black-piece">♚</span>
+                <span className="select-piece black-piece">{"♚"}</span>
                 Black
               </label>
-              <ModelDropdown
-                large
-                value={black}
-                modelsByProvider={modelsByProvider}
-                onChange={setBlack}
-                placeholder={!authReady ? 'Checking providers…' : availableModels.length === 0 ? 'Connect a provider' : 'Select model…'}
-                disabled={!authReady}
-              />
+              <select
+                className="settings-select player-kind-select"
+                value={blackMode}
+                onChange={e => setBlackMode(e.target.value)}
+              >
+                <option value="llm">LLM</option>
+                <option value="human">Human</option>
+              </select>
+              {blackMode === 'llm' ? (
+                <ModelDropdown
+                  large
+                  value={black}
+                  modelsByProvider={modelsByProvider}
+                  onChange={setBlack}
+                  placeholder={!authReady ? 'Checking providers...' : availableModels.length === 0 ? 'Connect a provider' : 'Select model...'}
+                  disabled={!authReady}
+                />
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    className="settings-fen player-name-input"
+                    value={blackHumanName}
+                    onChange={e => setBlackHumanName(e.target.value)}
+                    placeholder="Human (Black)"
+                  />
+                  <p className="human-help">Moves will be entered from the live board when it is Black's turn.</p>
+                </>
+              )}
             </div>
 
             {availableModels.some(m => m.supports_vision) && (
@@ -475,7 +543,7 @@ export default function ModelPicker({
           <button
             className="start-btn"
             onClick={handleStart}
-            disabled={!white || !black}
+            disabled={!canStart}
           >
             Start Game
           </button>
@@ -485,3 +553,5 @@ export default function ModelPicker({
     </div>
   )
 }
+
+

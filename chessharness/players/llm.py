@@ -1,15 +1,15 @@
-"""
-LLMPlayer — a chess player backed by any LLMProvider.
+﻿"""
+LLMPlayer â€” a chess player backed by any LLMProvider.
 
 Prompt design:
   - Structured response format with ## Reasoning and ## Move sections.
     This gives models room to think before committing to a move, which
     dramatically reduces invalid/hallucinated responses compared to asking
     for a bare move token.
-  - Legal moves list included every turn — most effective anti-hallucination measure.
+  - Legal moves list included every turn â€” most effective anti-hallucination measure.
   - Extraction parses the ## Move section first, falls back to SAN/UCI regex scan.
   - max_tokens=5120 to accommodate extended reasoning + move.
-  - Temperature not set — each provider uses its own default.
+  - Temperature not set â€” each provider uses its own default.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 _SYSTEM = """\
 You are playing chess as {color} ({color_upper} pieces) in a standard game.
 
-Respond in this exact format — two sections, nothing else:
+Respond in this exact format â€” two sections, nothing else:
 
 ## Reasoning
 Think through the position: threats, tactics, your plan. Be concise.
@@ -91,7 +91,7 @@ class LLMPlayer(Player):
         max_output_tokens: int = 5120,
         reasoning_effort: str | None = None,
     ) -> None:
-        super().__init__(name)
+        super().__init__(name, player_type="llm")
         self._provider = provider
         self._logger = logger
         self._show_legal_moves = show_legal_moves
@@ -122,7 +122,7 @@ class LLMPlayer(Player):
             # even if the provider advertises it. Fall back to text board.
             if any(m.image_bytes for m in messages):
                 logger.warning(
-                    "Vision call failed for %s — retrying with text board representation.",
+                    "Vision call failed for %s â€” retrying with text board representation.",
                     self.name,
                 )
                 messages = self._build_messages(state, force_text=True)
@@ -134,10 +134,10 @@ class LLMPlayer(Player):
             self._logger.log_response(raw=raw)
 
         # Append this exchange to history using a compact turn label instead of
-        # the full board text — the current board state is re-sent fresh each turn
+        # the full board text â€” the current board state is re-sent fresh each turn
         # so replaying it in every historical user slot wastes tokens with no benefit.
         turn_label = (
-            f"[Move {state.move_number} — {state.color.upper()}"
+            f"[Move {state.move_number} â€” {state.color.upper()}"
             + (f" | Attempt {state.attempt_num}" if state.attempt_num > 1 else "")
             + "]"
         )
@@ -295,15 +295,15 @@ def _extract_move(text: str) -> str:
     """
     cleaned = text.strip()
 
-    # Strip common prefixes — check case-insensitively but preserve original case
-    # for SAN (Nf3 ≠ nf3)
+    # Strip common prefixes â€” check case-insensitively but preserve original case
+    # for SAN (Nf3 â‰  nf3)
     lower = cleaned.lower()
     for prefix in ("my move:", "move:", "i play", "i choose", "best move:", "**", "*"):
         if lower.startswith(prefix):
             cleaned = cleaned[len(prefix):].strip()
             lower = cleaned.lower()
 
-    # UCI is case-insensitive and unambiguous — lower it for consistency
+    # UCI is case-insensitive and unambiguous â€” lower it for consistency
     uci_match = _UCI_RE.search(cleaned)
     if uci_match:
         return uci_match.group(1).lower()
@@ -315,3 +315,4 @@ def _extract_move(text: str) -> str:
 
     tokens = cleaned.split()
     return tokens[0] if tokens else cleaned
+

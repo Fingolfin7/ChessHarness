@@ -1,4 +1,4 @@
-"""
+﻿"""
 Player factory.
 
 create_player() is the single entry point for instantiating any Player.
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from chessharness.players.base import Player, GameState
 from chessharness.players.llm import LLMPlayer
-from chessharness.players.human import HumanPlayer
+from chessharness.players.human import HumanPlayer, QueuedHumanPlayer
 from chessharness.players.engine import EnginePlayer
 from chessharness.providers.base import LLMProvider
 
@@ -21,6 +21,7 @@ __all__ = [
     "GameState",
     "LLMPlayer",
     "HumanPlayer",
+    "QueuedHumanPlayer",
     "EnginePlayer",
     "create_player",
 ]
@@ -59,3 +60,4 @@ def create_player(
                 max_output_tokens=max_output_tokens,
                 reasoning_effort=reasoning_effort,
             )
+

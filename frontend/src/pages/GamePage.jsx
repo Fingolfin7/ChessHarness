@@ -1,12 +1,4 @@
-/**
- * GamePage — manages a single game session.
- *
- * Renders ModelPicker (setup) → GameView (playing / over).
- * All WebSocket game state lives here.
- */
-
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+﻿import { useCallback, useEffect, useRef, useState } from 'react'
 import ModelPicker from '../components/ModelPicker.jsx'
 import GameView from '../components/GameView.jsx'
 import { useAppContext } from '../context/AppContext.jsx'
@@ -21,6 +13,8 @@ const INITIAL_STATE = {
   reasoning: { white: '', black: '' },
   moves: [],
   plies: [],
+  legalMoves: [],
+  awaitingHumanInput: null,
   invalidAttempt: null,
   result: null,
   error: null,
@@ -56,6 +50,8 @@ function applyEvent(state, event) {
         reasoning: event.reasoning ?? { white: '', black: '' },
         moves: event.moves ?? [],
         plies: event.plies ?? [],
+        legalMoves: event.legalMoves ?? [],
+        awaitingHumanInput: event.awaitingHumanInput ?? null,
         invalidAttempt: event.invalidAttempt ?? null,
         result: event.result ?? null,
         error: event.error ?? null,
@@ -66,21 +62,34 @@ function applyEvent(state, event) {
         ...freshGameState(),
         fen: event.starting_fen || 'start',
         players: {
-          white: { name: event.white_name },
-          black: { name: event.black_name },
+          white: { name: event.white_name, type: event.white_player_type || 'unknown' },
+          black: { name: event.black_name, type: event.black_player_type || 'unknown' },
         },
       }
 
     case 'TurnStartEvent':
-      return { ...state, turn: event.color }
-
-    case 'MoveRequestedEvent':
       return {
         ...state,
-        thinking: true,
+        turn: event.color,
+        legalMoves: event.legal_moves_san ?? [],
+      }
+
+    case 'MoveRequestedEvent': {
+      const isHuman = event.player_type === 'human'
+      return {
+        ...state,
+        thinking: !isHuman,
         invalidAttempt: null,
+        awaitingHumanInput: isHuman
+          ? {
+              color: event.color,
+              attempt: event.attempt_num,
+              legalMoves: state.legalMoves,
+            }
+          : null,
         reasoning: { ...state.reasoning, [event.color]: '' },
       }
+    }
 
     case 'ReasoningChunkEvent':
       return {
@@ -96,6 +105,7 @@ function applyEvent(state, event) {
       return {
         ...state,
         thinking: false,
+        awaitingHumanInput: null,
         invalidAttempt: {
           color: event.color,
           move: event.attempted_move,
@@ -113,6 +123,7 @@ function applyEvent(state, event) {
           to: event.move_uci.slice(2, 4),
         },
         thinking: false,
+        awaitingHumanInput: null,
         invalidAttempt: null,
         reasoning: {
           ...state.reasoning,
@@ -138,6 +149,7 @@ function applyEvent(state, event) {
         ...state,
         phase: 'over',
         thinking: false,
+        awaitingHumanInput: null,
         result: {
           result: event.result,
           reason: event.reason,
@@ -156,7 +168,6 @@ function applyEvent(state, event) {
 }
 
 export default function GamePage() {
-  const navigate = useNavigate()
   const {
     models, authProviders, authReady, defaultSettings,
     connectProvider, disconnectProvider,
@@ -168,7 +179,7 @@ export default function GamePage() {
   const wsRef = useRef(null)
   const sessionRef = useRef(0)
   const stateRef = useRef(INITIAL_STATE)
-  const lastGameRef = useRef(null)  // { white, black, settings } for rematch
+  const lastGameRef = useRef(null)
   const reconnectRef = useRef({ timer: null, delayMs: 1000, enabled: false })
 
   useEffect(() => {
@@ -239,6 +250,12 @@ export default function GamePage() {
     wsRef.current?.send(JSON.stringify({ type: 'stop' }))
   }, [])
 
+  const submitHumanMove = useCallback((move, color) => {
+    if (!move?.trim()) return
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return
+    wsRef.current.send(JSON.stringify({ type: 'submit_move', move, color }))
+  }, [])
+
   const newGame = useCallback(() => {
     sessionRef.current += 1
     reconnectRef.current.enabled = false
@@ -251,7 +268,7 @@ export default function GamePage() {
   const rematch = useCallback(() => {
     if (!lastGameRef.current) return
     const { white, black, settings } = lastGameRef.current
-    startGame(black, white, settings)  // swap colours
+    startGame(black, white, settings)
   }, [startGame])
 
   if (state.phase === 'setup') {
@@ -272,5 +289,14 @@ export default function GamePage() {
     )
   }
 
-  return <GameView state={state} onStop={stopGame} onNewGame={newGame} onRematch={rematch} />
+  return (
+    <GameView
+      state={state}
+      onStop={stopGame}
+      onNewGame={newGame}
+      onRematch={rematch}
+      onSubmitHumanMove={submitHumanMove}
+    />
+  )
 }
+

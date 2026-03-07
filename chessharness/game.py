@@ -1,13 +1,13 @@
-"""
-Async game loop — the core orchestrator.
+﻿"""
+Async game loop â€” the core orchestrator.
 
 This module is UI-agnostic. It yields typed GameEvent objects and never prints,
 never writes files directly, and has no Rich/CLI dependencies.
 
 Consumers:
-  CLI  → chessharness/cli/display.py
-  Web  → FastAPI WebSocket handler (future)
-  Tests → async for event in run_game(...): assert ...
+  CLI  â†’ chessharness/cli/display.py
+  Web  â†’ FastAPI WebSocket handler (future)
+  Tests â†’ async for event in run_game(...): assert ...
 
 Usage:
     async for event in run_game(config, white_player, black_player):
@@ -99,7 +99,7 @@ async def run_game(
         previous_error: str | None = None
 
         for attempt in range(1, config.game.max_retries + 1):
-            yield MoveRequestedEvent(color=current_color, attempt_num=attempt)
+            yield MoveRequestedEvent(color=current_color, attempt_num=attempt, player_type=current_player.player_type)
 
             board_image: bytes | None = None
             if use_images:
@@ -194,10 +194,10 @@ async def run_game(
                 if error_kind == "illegal":
                     error = f"'{response.move}' is illegal"
                     if config.game.show_legal_moves:
-                        error += " — choose from the legal moves listed above."
+                        error += " â€” choose from the legal moves listed above."
                 elif error_kind == "ambiguous":
                     error = (
-                        f"'{response.move}' is ambiguous — multiple pieces can make that move. "
+                        f"'{response.move}' is ambiguous â€” multiple pieces can make that move. "
                         f"Use a disambiguated form (e.g. include the file or rank: Rbd3, R1d3). "
                         f"Legal moves: {', '.join(board.legal_moves_san())}"
                     )
@@ -305,3 +305,4 @@ def _reasoning_comment(reasoning: str) -> str:
     if len(text) > 2000:
         return text[:1997] + "..."
     return text
+

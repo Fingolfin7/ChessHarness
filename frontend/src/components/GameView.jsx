@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useEffect, useState } from 'react'
 import Board from './Board.jsx'
 import PlayerPanel from './PlayerPanel.jsx'
 import MoveHistory from './MoveHistory.jsx'
@@ -8,26 +8,23 @@ function resultText(result) {
   if (!result) return null
   if (result.reason === 'interrupted') return 'Game stopped by user'
   if (result.winner) return `${result.winner} wins by ${result.reason.replace(/_/g, ' ')}`
-  return `Draw — ${result.reason.replace(/_/g, ' ')}`
+  return `Draw - ${result.reason.replace(/_/g, ' ')}`
 }
 
-export default function GameView({ state, onStop, onNewGame, onRematch }) {
-  const { players, fen, lastMove, turn, thinking, reasoning, moves,
-          plies, invalidAttempt, result, error, phase } = state
+export default function GameView({ state, onStop, onNewGame, onRematch, onSubmitHumanMove }) {
+  const {
+    players, fen, lastMove, turn, thinking, reasoning, moves,
+    plies, awaitingHumanInput, invalidAttempt, result, error, phase,
+  } = state
   const isOver = phase === 'over'
-
-  // null = live; 0..plies.length-1 = reviewing that ply
   const [viewIndex, setViewIndex] = useState(null)
   const [flipped, setFlipped] = useState(false)
 
-  // Snap back to live when a new move arrives during live view
   useEffect(() => {
-    if (viewIndex === null) return   // already live, nothing to do
-    // stay in review mode when browsing; only auto-follow if at the last ply
+    if (viewIndex === null) return
     if (viewIndex === plies.length - 2) setViewIndex(null)
-  }, [plies.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [plies.length])
 
-  // Keyboard navigation (← →)
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === 'ArrowLeft') {
@@ -47,14 +44,12 @@ export default function GameView({ state, onStop, onNewGame, onRematch }) {
     return () => window.removeEventListener('keydown', handleKey)
   }, [plies.length])
 
-  // ── Compute what to display ─────────────────────────────────────────── //
   const isLive = viewIndex === null
   const currentPly = isLive ? null : plies[viewIndex]
 
-  const displayFen      = currentPly ? currentPly.fen_after : fen
+  const displayFen = currentPly ? currentPly.fen_after : fen
   const displayLastMove = currentPly ? { from: currentPly.from, to: currentPly.to } : lastMove
 
-  // For reasoning panels in review mode: walk backwards to find each colour's latest reasoning
   const displayReasoning = (() => {
     if (isLive) return reasoning
     const out = { white: '', black: '' }
@@ -68,31 +63,37 @@ export default function GameView({ state, onStop, onNewGame, onRematch }) {
 
   const isThinkingWhite = isLive && turn === 'white' && thinking
   const isThinkingBlack = isLive && turn === 'black' && thinking
+  const isAwaitingWhite = isLive && awaitingHumanInput?.color === 'white'
+  const isAwaitingBlack = isLive && awaitingHumanInput?.color === 'black'
 
-  // ── Navigation helpers ──────────────────────────────────────────────── //
-  const goToStart   = () => setViewIndex(0)
-  const goBack      = () => setViewIndex(v => v === null ? plies.length - 1 : Math.max(0, v - 1))
-  const goForward   = () => setViewIndex(v => v === null ? null : (v >= plies.length - 1 ? null : v + 1))
-  const goToLive    = () => setViewIndex(null)
-  const goToPly     = (idx) => setViewIndex(idx)
+  const goToStart = () => setViewIndex(0)
+  const goBack = () => setViewIndex(v => v === null ? plies.length - 1 : Math.max(0, v - 1))
+  const goForward = () => setViewIndex(v => v === null ? null : (v >= plies.length - 1 ? null : v + 1))
+  const goToLive = () => setViewIndex(null)
+  const goToPly = (idx) => setViewIndex(idx)
 
   const navLabel = isLive
-    ? '● Live'
-    : `Move ${currentPly.moveNumber}${currentPly.color === 'white' ? 'w' : 'b'} · ${currentPly.san}`
+    ? 'Live'
+    : `Move ${currentPly.moveNumber}${currentPly.color === 'white' ? 'w' : 'b'} - ${currentPly.san}`
 
   const lastWhiteSan = [...moves].reverse().find(m => m.white)?.white?.san
   const lastBlackSan = [...moves].reverse().find(m => m.black)?.black?.san
+  const humanTurnColor = awaitingHumanInput?.color
+  const boardInteractive = isLive && !!humanTurnColor
+
+  const handleBoardMove = (move) => {
+    if (!humanTurnColor) return
+    onSubmitHumanMove(move, humanTurnColor)
+  }
 
   return (
     <div className="game-layout">
-
-      {/* ── Header ── */}
       <header className="game-header">
         <div className="header-controls">
-          <button className="btn" onClick={() => setFlipped(f => !f)} title="Flip board">⇅ Flip</button>
+          <button className="btn" onClick={() => setFlipped(f => !f)} title="Flip board">Flip</button>
           {!isOver && <button className="btn btn-stop" onClick={onStop}>Stop Game</button>}
-          {isOver  && <button className="btn btn-rematch" onClick={onRematch}>↺ Rematch</button>}
-          {isOver  && <button className="btn btn-new"  onClick={onNewGame}>New Game</button>}
+          {isOver && <button className="btn btn-rematch" onClick={onRematch}>Rematch</button>}
+          {isOver && <button className="btn btn-new" onClick={onNewGame}>New Game</button>}
         </div>
       </header>
 
@@ -103,21 +104,25 @@ export default function GameView({ state, onStop, onNewGame, onRematch }) {
       )}
       {error && <div className="error-banner">{error}</div>}
 
-      {/* ── Main ── */}
       <div className="game-main">
-
-        {/* Board */}
         <div className="board-col">
-          <Board fen={displayFen} lastMove={displayLastMove} flipped={flipped} />
+          <Board
+            fen={displayFen}
+            lastMove={displayLastMove}
+            flipped={flipped}
+            interactive={boardInteractive}
+            onMove={handleBoardMove}
+          />
         </div>
 
-        {/* Sidebar — Black on top, history in middle, White on bottom (Lichess-style) */}
         <div className="sidebar">
           <PlayerPanel
             color="black"
             name={players.black?.name}
+            playerType={players.black?.type}
             isActive={turn === 'black' && !isOver}
             isThinking={isThinkingBlack}
+            isAwaitingInput={isAwaitingBlack}
             invalidAttempt={invalidAttempt?.color === 'black' ? invalidAttempt : null}
             lastMoveSan={lastBlackSan}
           />
@@ -139,15 +144,16 @@ export default function GameView({ state, onStop, onNewGame, onRematch }) {
           <PlayerPanel
             color="white"
             name={players.white?.name}
+            playerType={players.white?.type}
             isActive={turn === 'white' && !isOver}
             isThinking={isThinkingWhite}
+            isAwaitingInput={isAwaitingWhite}
             invalidAttempt={invalidAttempt?.color === 'white' ? invalidAttempt : null}
             lastMoveSan={lastWhiteSan}
           />
         </div>
       </div>
 
-      {/* ── Reasoning ── */}
       <div className="reasoning-row">
         <ReasoningPanel
           color="white"
@@ -164,7 +170,6 @@ export default function GameView({ state, onStop, onNewGame, onRematch }) {
           isReviewing={!isLive && currentPly?.color === 'black'}
         />
       </div>
-
     </div>
   )
 }

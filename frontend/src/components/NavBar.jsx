@@ -4,7 +4,7 @@ export default function NavBar() {
   return (
     <nav className="app-nav">
       <NavLink to="/" className="app-nav-logo" title="Home">
-        ♔ ChessHarness
+        {"\u2654"} ChessHarness
       </NavLink>
       <div className="app-nav-links">
         <NavLink
