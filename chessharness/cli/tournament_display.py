@@ -109,7 +109,14 @@ def _match_start(event: MatchStartEvent) -> None:
 
 def _match_complete(event: MatchCompleteEvent) -> None:
     r = event.result
-    if r.winner:
+    if not event.is_elimination and r.winner:
+        summary = (
+            f"[green]✓[/] [bold]{r.winner.display_name}[/] wins  "
+            f"[dim]({r.game_result} in {r.total_moves} moves)[/]"
+        )
+    elif not event.is_elimination:
+        summary = f"[yellow]½[/] Draw  [dim]({r.game_result})[/]"
+    elif r.winner:
         summary = (
             f"[green]✓[/] [bold]{event.advancing_name}[/] advances  "
             f"[dim]({r.game_result} in {r.total_moves} moves)[/]"

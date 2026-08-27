@@ -2,7 +2,7 @@
  * TournamentSetup — dedicated tournament configuration page.
  *
  * Lets the user build a participant list (2–16 players) by picking any
- * available model for each slot, then configure draw handling before
+ * available model for each slot, then configure the tournament format before
  * launching the tournament.
  *
  * If a tournament is already running (409), navigates to /tournament
@@ -15,6 +15,10 @@ import { useAppContext } from '../../context/AppContext.jsx'
 import ModelDropdown, { VisionIcon } from '../ModelDropdown.jsx'
 
 const MAX_PLAYERS = 16
+const FORMAT_OPTIONS = [
+  { value: 'knockout', label: 'Knockout (single elimination)' },
+  { value: 'round_robin', label: 'Round Robin (both colours)' },
+]
 const DRAW_OPTIONS = [
   { value: 'rematch',    label: 'Rematch (colours swap until a winner)' },
   { value: 'coin_flip',  label: 'Coin flip' },
@@ -51,6 +55,7 @@ export default function TournamentSetup() {
   const { models, authProviders, authReady, defaultSettings } = useAppContext()
 
   const [players, setPlayers] = useState(['', ''])
+  const [tournamentType, setTournamentType] = useState('knockout')
   const [drawHandling, setDrawHandling] = useState('rematch')
   const [settings, setSettings] = useState({
     maxRetries: 3,
@@ -110,7 +115,11 @@ export default function TournamentSetup() {
 
   const selectedCount = players.filter(Boolean).length
   const canStart = selectedCount >= 2 && !loading
-  const byes = byeCount(players.length)
+  const byes = byeCount(selectedCount)
+  const roundRobinRounds = selectedCount % 2 === 0
+    ? Math.max(0, 2 * (selectedCount - 1))
+    : 2 * selectedCount
+  const roundRobinGames = selectedCount * Math.max(0, selectedCount - 1)
 
   const handleChange = (i, val) => {
     setPlayers(prev => { const next = [...prev]; next[i] = val; return next })
@@ -140,7 +149,7 @@ export default function TournamentSetup() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tournament_type: 'knockout',
+          tournament_type: tournamentType,
           draw_handling: drawHandling,
           participants,
           settings: {
@@ -235,9 +244,15 @@ export default function TournamentSetup() {
             <p className="ts-vision-legend"><VisionIcon className="ts-vision-icon" /> = supports image board input</p>
           )}
 
-          {selectedCount >= 3 && byes > 0 && (
+          {tournamentType === 'knockout' && selectedCount >= 3 && byes > 0 && (
             <p className="ts-bye-note">
               ℹ Bracket needs {nextPowerOfTwo(selectedCount)} slots — top {byes} seed{byes !== 1 ? 's' : ''} will receive a bye in round 1.
+            </p>
+          )}
+
+          {tournamentType === 'round_robin' && selectedCount >= 2 && (
+            <p className="ts-bye-note">
+              ℹ {roundRobinGames} games across {roundRobinRounds} rounds — every pairing plays twice with colours swapped.
             </p>
           )}
         </section>
@@ -249,18 +264,34 @@ export default function TournamentSetup() {
           </div>
 
           <div className="ts-settings-row">
-            <label className="ts-settings-label" htmlFor="draw-handling">Draw handling</label>
+            <label className="ts-settings-label" htmlFor="tournament-format">Format</label>
             <select
-              id="draw-handling"
+              id="tournament-format"
               className="settings-select"
-              value={drawHandling}
-              onChange={e => setDrawHandling(e.target.value)}
+              value={tournamentType}
+              onChange={e => setTournamentType(e.target.value)}
             >
-              {DRAW_OPTIONS.map(o => (
+              {FORMAT_OPTIONS.map(o => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </div>
+
+          {tournamentType === 'knockout' && (
+            <div className="ts-settings-row">
+              <label className="ts-settings-label" htmlFor="draw-handling">Draw handling</label>
+              <select
+                id="draw-handling"
+                className="settings-select"
+                value={drawHandling}
+                onChange={e => setDrawHandling(e.target.value)}
+              >
+                {DRAW_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="ts-settings-row">
             <label className="ts-settings-label" htmlFor="ts-max-retries">Max Retries</label>

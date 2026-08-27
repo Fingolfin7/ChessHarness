@@ -5,8 +5,8 @@ This document describes the architecture and phased implementation for multi-mod
 ## Goals
 
 - Let users select N AI models to compete in a structured tournament
-- Start with **Knock-out** (single-elimination) as the first format
-- Architect for easy addition of **Round Robin**, **Swiss**, and **Arena** later
+- Support **Knock-out** (single-elimination) and **Round Robin** tournaments
+- Architect for easy addition of **Swiss** and **Arena** later
 - Reuse the existing `game.py` loop unchanged — tournaments are a scheduling layer on top
 - Follow the same event-driven, UI-agnostic design as the rest of the project
 
@@ -22,7 +22,7 @@ chessharness/
 │   ├── base.py               ← Tournament ABC + shared dataclasses
 │   ├── events.py             ← frozen TournamentEvent dataclasses
 │   ├── knockout.py           ← KnockoutTournament (Phase 1)
-│   ├── round_robin.py        ← RoundRobinTournament (stub → Phase 2)
+│   ├── round_robin.py        ← RoundRobinTournament (Phase 2)
 │   ├── swiss.py              ← SwissTournament (stub → Phase 3)
 │   └── arena.py              ← ArenaTournament (stub → Phase 4)
 ├── cli/
@@ -189,8 +189,8 @@ The `tournament` block is optional; absent = use interactive prompts.
 
 ## Future Tournament Types
 
-### Round Robin (`round_robin.py`) — Phase 2
-- Every participant plays every other participant (home + away)
+### Round Robin (`round_robin.py`) — Phase 2 (implemented)
+- Every participant plays every other participant twice (once with each colour)
 - No elimination; final standings by total points
 - Pairings: round-robin schedule algorithm (circle method)
 - Concurrency: all games in a round run in parallel
@@ -216,7 +216,7 @@ The `tournament` block is optional; absent = use interactive prompts.
 - [ ] `chessharness/tournaments/base.py` — `Tournament` ABC, `TournamentParticipant`, `MatchResult`, `StandingEntry`
 - [ ] `chessharness/tournaments/events.py` — all `TournamentEvent` frozen dataclasses
 - [ ] `chessharness/tournaments/knockout.py` — `KnockoutTournament` implementation
-- [ ] `chessharness/tournaments/round_robin.py` — stub (raises `NotImplementedError`)
+- [x] `chessharness/tournaments/round_robin.py` — double round-robin implementation
 - [ ] `chessharness/tournaments/swiss.py` — stub
 - [ ] `chessharness/tournaments/arena.py` — stub
 - [ ] `chessharness/cli/tournament_display.py` — Rich consumer
@@ -227,9 +227,9 @@ The `tournament` block is optional; absent = use interactive prompts.
 - [ ] Update `README.md` with tournament usage
 
 ### Phase 2 — Round Robin
-- [ ] Implement `round_robin.py`
-- [ ] Add standings table to display
-- [ ] Tests
+- [x] Implement `round_robin.py`
+- [x] Add standings table to display
+- [x] Tests
 
 ### Phase 3 — Swiss
 - [ ] Implement `swiss.py` with tiebreak scoring

@@ -45,7 +45,7 @@ async def _main() -> None:
     participants = select_tournament_participants(config)
 
     # ── Select tournament settings ───────────────────────────────────── #
-    tournament_type, draw_handling = select_tournament_settings()
+    tournament_type, draw_handling = select_tournament_settings(len(participants))
 
     # ── Build the player factory ─────────────────────────────────────── #
     # Called once per game so each game starts with a fresh LLMPlayer

@@ -42,100 +42,41 @@ providers:
   openai:
     api_key: "YOUR_OPENAI_KEY"
     models:
-      - id: gpt-5.5
-        name: "GPT-5.5"
+      - id: gpt-5.6-sol
+        name: "GPT-5.6 Sol"
         supports_vision: true
-      - id: gpt-5.4
-        name: "GPT-5.4"
+      - id: gpt-5.6-terra
+        name: "GPT-5.6 Terra"
         supports_vision: true
-      - id: gpt-5.4-mini
-        name: "GPT-5.4 mini"
+      - id: gpt-5.6-luna
+        name: "GPT-5.6 Luna"
         supports_vision: true
-      - id: gpt-5.4-nano
-        name: "GPT-5.4 nano"
-        supports_vision: true
-      - id: gpt-5.2
-        name: "GPT-5.2"
-        supports_vision: true
-      - id: gpt-5.1
-        name: "GPT-5.1"
-        supports_vision: true
-      - id: gpt-5
-        name: "GPT-5"
-        supports_vision: true
-      - id: gpt-5-mini
-        name: "GPT-5 mini"
-        supports_vision: true
-      - id: o3-2025-04-16
-        name: "o3"
-        supports_vision: true
-      - id: o4-mini-2025-04-16
-        name: "o4-mini"
-        supports_vision: true
-      - id: o3-mini
-        name: "o3-mini"
         # Optional per-model override. When omitted, ChessHarness auto-detects by model ID.
         # supports_vision: false
   # OpenAI ChatGPT/Codex session auth (supports "Use Codex Login" in the web UI)
   openai_chatgpt:
     base_url: "https://chatgpt.com/backend-api/codex"
     models:
-      - id: "gpt-5.5"
-        name: "gpt-5.5"
+      - id: "gpt-5.6-sol"
+        name: "GPT-5.6 Sol"
         supports_vision: true
-      - id: "gpt-5.4"
-        name: "gpt-5.4"
+      - id: "gpt-5.6-terra"
+        name: "GPT-5.6 Terra"
         supports_vision: true
-      - id: "gpt-5.4-mini"
-        name: "gpt-5.4-mini"
-        supports_vision: true
-      - id: "gpt-5.4-nano"
-        name: "gpt-5.4-nano"
-        supports_vision: true
-      - id: "gpt-5"
-        name: "gpt-5"
-        supports_vision: true
-      - id: "gpt-5-codex"
-        name: "gpt-5-codex"
-        supports_vision: true
-      - id: "gpt-5-codex-mini"
-        name: "gpt-5-codex-mini"
-        supports_vision: true
-      - id: "gpt-5.1"
-        name: "gpt-5.1"
-        supports_vision: true
-      - id: "gpt-5.1-codex"
-        name: "gpt-5.1-codex"
-        supports_vision: true
-      - id: "gpt-5.1-codex-max"
-        name: "gpt-5.1-codex-max"
-        supports_vision: true
-      - id: "gpt-5.1-codex-mini"
-        name: "gpt-5.1-codex-mini"
-        supports_vision: true
-      - id: "gpt-5.2"
-        name: "gpt-5.2"
-        supports_vision: true
-      - id: "gpt-5.2-codex"
-        name: "gpt-5.2-codex"
-        supports_vision: true
-      - id: "gpt-5.3-codex"
-        name: "gpt-5.3-codex"
+      - id: "gpt-5.6-luna"
+        name: "GPT-5.6 Luna"
         supports_vision: true
   anthropic:
     api_key: "YOUR_ANTHROPIC_KEY"
     models:
-      - id: claude-opus-4-7
-        name: "Claude Opus 4.7"
+      - id: claude-fable-5
+        name: "Claude Fable 5"
         supports_vision: true
-      - id: claude-opus-4-6
-        name: "Claude Opus 4.6"
+      - id: claude-opus-5
+        name: "Claude Opus 5"
         supports_vision: true
-      - id: claude-sonnet-4-6
-        name: "Claude Sonnet 4.6"
-        supports_vision: true
-      - id: claude-haiku-4-5-20251001
-        name: "Claude Haiku 4.5"
+      - id: claude-sonnet-5
+        name: "Claude Sonnet 5"
         supports_vision: true
 
   google:
@@ -215,6 +156,12 @@ providers:
     api_key: "YOUR_OPENROUTER_KEY"
     base_url: "https://openrouter.ai/api/v1"
     models:
+      - id: z-ai/glm-5.3-flash
+        name: "OpenRouter GLM 5.3 Flash"
+        supports_vision: true
+      - id: moonshotai/kimi-k3
+        name: "OpenRouter Kimi K3"
+        supports_vision: true
       - id: openai/gpt-oss-120b:free
         name: "OpenRouter GPT-OSS-120B"
         supports_vision: false

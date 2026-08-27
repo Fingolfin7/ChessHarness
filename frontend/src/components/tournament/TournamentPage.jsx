@@ -17,7 +17,7 @@ import BracketPanel from './BracketPanel.jsx'
 
 // ── Header ────────────────────────────────────────────────────────────────── //
 
-function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBracket, onRestart, onStop }) {
+function TournamentHeader({ status, tournamentType, currentRound, totalRounds, connStatus, onBracket, onRestart, onStop }) {
   const navigate = useNavigate()
 
   const roundLabel = totalRounds
@@ -41,7 +41,9 @@ function TournamentHeader({ status, currentRound, totalRounds, connStatus, onBra
             ↻ {connStatus === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
           </span>
         )}
-        <button className="btn" onClick={onBracket}>Bracket</button>
+        <button className="btn" onClick={onBracket}>
+          {tournamentType === 'round_robin' ? 'Results' : 'Bracket'}
+        </button>
         {status === 'running' && (
           <button className="btn btn-stop" onClick={onStop}>■ Stop</button>
         )}
@@ -255,6 +257,7 @@ export default function TournamentPage() {
     <div className="tc-page">
       <TournamentHeader
         status={status}
+        tournamentType={tournamentType}
         currentRound={currentRound}
         totalRounds={totalRounds}
         connStatus={connStatus}
@@ -301,6 +304,7 @@ export default function TournamentPage() {
         matches={matches}
         standings={standings}
         winner={winner}
+        tournamentType={tournamentType}
       />
     </div>
   )

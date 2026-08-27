@@ -75,7 +75,9 @@ def select_tournament_participants(config: Config) -> list[TournamentParticipant
     return participants
 
 
-def select_tournament_settings() -> tuple[TournamentType, DrawHandling]:
+def select_tournament_settings(
+    participant_count: int | None = None,
+) -> tuple[TournamentType, DrawHandling]:
     """
     Prompt the user to choose tournament type and draw-handling strategy.
     Returns (tournament_type, draw_handling).
@@ -85,7 +87,7 @@ def select_tournament_settings() -> tuple[TournamentType, DrawHandling]:
     # Tournament type
     console.print("[bold]Tournament format:[/]")
     console.print("  1. Knock-out (single elimination)")
-    console.print("  2. Round Robin  [dim](not yet implemented)[/]")
+    console.print("  2. Round Robin  [dim](double: each opponent once per colour)[/]")
     console.print("  3. Swiss        [dim](not yet implemented)[/]")
     console.print("  4. Arena        [dim](not yet implemented)[/]")
 
@@ -98,9 +100,27 @@ def select_tournament_settings() -> tuple[TournamentType, DrawHandling]:
     }
     tournament_type = type_map[type_choice]
 
-    if tournament_type != "knockout":
+    if tournament_type in ("swiss", "arena"):
         console.print(f"  [yellow]{tournament_type} is not yet implemented.[/]")
         raise SystemExit(1)
+
+    if tournament_type == "round_robin":
+        console.print(
+            "\n[dim]Every participant plays every opponent twice, once with each colour. "
+            "Draws award half a point.[/]\n"
+        )
+        return tournament_type, "rematch"
+
+    if participant_count is not None:
+        import math
+
+        slots = 1 << math.ceil(math.log2(max(participant_count, 2)))
+        byes = slots - participant_count
+        if byes:
+            console.print(
+                f"\n  [dim]ℹ  {byes} bye(s) will be awarded to the top "
+                f"{byes} seed(s) in round 1.[/]"
+            )
 
     # Draw handling (knockout only for now)
     console.print("\n[bold]Draw handling:[/]")
@@ -136,15 +156,6 @@ def _print_participant_summary(participants: list[TournamentParticipant]) -> Non
     for p in participants:
         table.add_row(str(p.seed), p.display_name, p.provider_name, p.model.id)
 
-    n = len(participants)
-    import math
-    slots = 1 << math.ceil(math.log2(max(n, 2)))
-    byes = slots - n
-
     console.print()
     console.print(table)
-    if byes:
-        console.print(
-            f"  [dim]ℹ  {byes} bye(s) will be awarded to the top {byes} seed(s) in round 1.[/]"
-        )
     console.print()

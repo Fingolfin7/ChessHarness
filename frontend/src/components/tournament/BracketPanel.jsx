@@ -5,14 +5,14 @@
  * Rendered as a slide-in panel from the right.
  */
 
-export default function BracketPanel({ open, onClose, matches, standings, winner }) {
+export default function BracketPanel({ open, onClose, matches, standings, winner, tournamentType }) {
   if (!open) return null
 
   return (
     <div className="tc-bracket-overlay" onClick={onClose}>
       <div className="tc-bracket-panel" onClick={e => e.stopPropagation()}>
         <div className="tc-bracket-header">
-          <span>Bracket</span>
+          <span>{tournamentType === 'round_robin' ? 'Results' : 'Bracket'}</span>
           <button className="tc-bracket-close" onClick={onClose}>✕</button>
         </div>
 

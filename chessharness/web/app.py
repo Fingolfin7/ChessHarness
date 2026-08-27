@@ -894,6 +894,7 @@ import dataclasses as _dc
 
 from chessharness.tournaments import (
     KnockoutTournament,
+    StandingEntry,
     TournamentParticipant,
     create_tournament,
 )
@@ -1385,6 +1386,11 @@ def _to_json_dict(obj):
         d: dict = {"type": type(obj).__name__}
         for f in _dc.fields(obj):
             d[f.name] = _to_json_dict(getattr(obj, f.name))
+        # Dataclass serialisation does not include computed properties. These
+        # values are part of the standings API consumed by the web UI.
+        if isinstance(obj, StandingEntry):
+            d["points"] = obj.points
+            d["games_played"] = obj.games_played
         return d
     if isinstance(obj, (list, tuple)):
         return [_to_json_dict(item) for item in obj]

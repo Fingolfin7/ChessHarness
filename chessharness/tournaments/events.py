@@ -69,8 +69,10 @@ class MatchCompleteEvent:
 
     match_id: str
     result: MatchResult
-    advancing_name: str   # display name of the participant who advances
+    advancing_name: str   # winner/advancing player; empty for an undecided draw
     round_num: int
+    # False for formats such as round robin where a game does not eliminate anyone.
+    is_elimination: bool = True
 
 
 @dataclass(frozen=True)

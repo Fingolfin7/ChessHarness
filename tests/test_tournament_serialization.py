@@ -132,3 +132,19 @@ class ToJsonDictTests(unittest.TestCase):
         self.assertEqual(result["total_rounds"], 1)
         # timestamp should be present (serialised by json.dumps default=str later)
         self.assertIn("timestamp", result)
+
+    def test_standing_entry_includes_computed_points(self):
+        from chessharness.config import ModelEntry
+        from chessharness.tournaments import StandingEntry, TournamentParticipant
+
+        participant = TournamentParticipant(
+            provider_name="mock",
+            model=ModelEntry(id="alpha", name="Alpha"),
+            seed=1,
+        )
+        entry = StandingEntry(participant=participant, wins=2, draws=1, losses=1)
+
+        result = web_app._to_json_dict(entry)
+
+        self.assertEqual(result["points"], 2.5)
+        self.assertEqual(result["games_played"], 4)
