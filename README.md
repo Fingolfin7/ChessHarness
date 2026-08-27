@@ -77,6 +77,30 @@ Then open **http://localhost:5173**.
 
 ---
 
+### Optional Stockfish benchmark
+
+Stockfish is not bundled with ChessHarness. Download an official build from
+[stockfishchess.org](https://stockfishchess.org/download/), then set the
+executable path in the `engines` section of `config.yaml` (use forward slashes
+or a quoted Windows path):
+
+```yaml
+engines:
+  stockfish-1600:
+    name: "Stockfish 1600"
+    path: "C:/tools/stockfish/stockfish.exe"
+    uci_elo: 1600
+    nodes: 100000
+    threads: 1
+    hash_mb: 64
+```
+
+The profile uses Stockfish's UCI strength target and a fixed node budget. The
+`1600` value is therefore a reproducible nominal anchor, not a claim of an
+official human/FIDE rating. A profile must point to a UCI binary that supports
+`UCI_LimitStrength`, `UCI_Elo`, `Threads`, and `Hash`.
+Treat the profile ID as versioned: change it when upgrading the engine binary.
+
 ## Configuration
 
 Edit `config.yaml` to define which models are available. At startup the UI loads all connected providers automatically.
@@ -133,6 +157,55 @@ Notes:
 
 
 ---
+
+### Ratings and the game ledger
+
+Ratings use Glicko-2 only. By default, the SQLite database is
+`./data/ratings.sqlite3`; its parent directory is created on first use and the
+database is ignored by git. Set `ratings.enabled: false` to run games without
+recording or updating ratings.
+
+The default starting state is 1500 rating, 350 RD, and 0.06 volatility for a
+new model. Stockfish profiles are seeded at their configured nominal UCI Elo
+with the uncertainty in `ratings.benchmark_rd`. A single CLI game is one
+Glicko-2 rating period; tournament integrations group games into their own
+periods. Updates are calculated simultaneously from the period's pre-game
+snapshot, so game completion order cannot change the result.
+
+The web **Ratings** page ranks models conservatively by `rating - 2 * RD`,
+shows the fixed engine anchor separately, and exposes per-period history. Its
+**Benchmark vs Stockfish** action prepares a two-colour round robin and forces
+the canonical `standard-v1` settings so the result is eligible for the pool.
+
+Only clean model-versus-model games under the versioned standard ruleset are
+rated. Games involving a human, self-play, non-standard game settings,
+interruptions, incomplete games, or provider/engine/infrastructure failures
+are recorded but marked unrated. A retry-forfeit can still be rated when all
+failed attempts were model-output errors (for example, an illegal or
+unparseable move); a provider or engine failure taints the game as unrated.
+
+Competitors have stable IDs rather than display-name identities. LLMs use
+`llm:<provider>:<model_id>`, while an engine ID includes its Stockfish profile,
+UCI target, node budget, threads, and hash size. Human IDs are intentionally
+ephemeral and human games never affect the leaderboard. Display names may be
+refreshed, but changing a competitor's kind or anchor status is rejected to
+protect historical data.
+
+The ledger keeps immutable games and before/after rating changes separately
+from the materialized `current_ratings` table. If that cache is damaged or
+needs refreshing, rebuild it from finalized history:
+
+```python
+from chessharness.ratings.store import RatingStore
+
+with RatingStore("./data/ratings.sqlite3") as store:
+    store.rebuild_current_ratings(algorithm_version="standard-v1:glicko2-v1")
+```
+
+This rebuild replays persisted post-states in batch-finalization order; it does
+not rewrite games or silently recalculate them with a different algorithm.
+Future Glicko-2 changes should use a new `algorithm_version`/pool and a
+deliberate ledger replay, leaving the existing projection auditable.
 
 ## How It Works
 

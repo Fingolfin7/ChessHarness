@@ -36,6 +36,27 @@ game:
   save_pgn: true
   pgn_dir: "./games"
 
+# Reproducible local engine benchmarks. The Stockfish executable itself is not
+# bundled; install it separately or point this path at an official binary.
+engines:
+  stockfish-1600:
+    name: "Stockfish 1600"
+    path: "stockfish"
+    uci_elo: 1600
+    # Fixed nodes make benchmark strength insensitive to concurrent CPU load.
+    nodes: 100000
+    threads: 1
+    hash_mb: 64
+
+ratings:
+  enabled: true
+  database_path: "./data/ratings.sqlite3"
+  pool_id: "standard-v1"
+  algorithm_version: "glicko2-v1"
+  tau: 0.5
+  # Stockfish's UCI target is a nominal anchor, so retain calibration uncertainty.
+  benchmark_rd: 60
+
 providers:
   # For each provider, set either api_key or bearer_token.
   # bearer_token is useful for subscription-style/login tokens from compatible gateways.

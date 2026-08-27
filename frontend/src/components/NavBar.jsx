@@ -26,6 +26,12 @@ export default function NavBar() {
         >
           Live Tournament
         </NavLink>
+        <NavLink
+          to="/ratings"
+          className={({ isActive }) => `app-nav-link${isActive ? ' app-nav-link--active' : ''}`}
+        >
+          Ratings
+        </NavLink>
       </div>
     </nav>
   )

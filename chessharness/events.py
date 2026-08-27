@@ -25,6 +25,15 @@ GameOverReason = Literal[
     "interrupted",
 ]
 PlayerType = Literal["llm", "human", "engine", "unknown"]
+AttemptFailureKind = Literal[
+    "provider_error",
+    "engine_error",
+    "empty_model_output",
+    "illegal_move",
+    "ambiguous_move",
+    "unparseable_move",
+    "unknown",
+]
 
 
 @dataclass(frozen=True)
@@ -34,6 +43,8 @@ class GameStartEvent:
     starting_fen: str = "start"
     white_player_type: PlayerType = "unknown"
     black_player_type: PlayerType = "unknown"
+    white_competitor_id: str = ""
+    black_competitor_id: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -65,6 +76,7 @@ class InvalidMoveEvent:
     error: str
     attempt_num: int
     provider_metadata: dict[str, object] = field(default_factory=dict)
+    failure_kind: AttemptFailureKind = "unknown"
 
 
 @dataclass(frozen=True)

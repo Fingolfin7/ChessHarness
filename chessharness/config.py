@@ -51,22 +51,67 @@ class ProviderConfig:
         return self.bearer_token or self.api_key
 
 
+@dataclass(frozen=True)
+class EngineProfile:
+    """A reproducible UCI engine benchmark profile."""
+
+    id: str = "stockfish-1600"
+    name: str = "Stockfish 1600"
+    path: str = "stockfish"
+    uci_elo: int = 1600
+    nodes: int = 100_000
+    threads: int = 1
+    hash_mb: int = 64
+
+    @property
+    def competitor_id(self) -> str:
+        return (
+            f"engine:stockfish:{self.id}:uci-{self.uci_elo}:"
+            f"nodes-{self.nodes}:threads-{self.threads}:hash-{self.hash_mb}"
+        )
+
+
+def _default_engines() -> dict[str, EngineProfile]:
+    profile = EngineProfile()
+    return {profile.id: profile}
+
+
+@dataclass(frozen=True)
+class RatingConfig:
+    enabled: bool = True
+    database_path: str = "./data/ratings.sqlite3"
+    pool_id: str = "standard-v1"
+    algorithm_version: str = "glicko2-v1"
+    tau: float = 0.5
+    benchmark_rd: float = 60.0
+
+
 @dataclass
 class Config:
     game: GameConfig
     providers: dict[str, ProviderConfig]
+    engines: dict[str, EngineProfile] = field(default_factory=_default_engines)
+    ratings: RatingConfig = field(default_factory=RatingConfig)
 
     @property
     def pgn_dir_path(self) -> Path:
         return Path(self.game.pgn_dir)
 
     def all_models(self) -> list[tuple[str, ModelEntry]]:
-        """Return a flat list of (provider_name, ModelEntry) across all providers."""
-        return [
+        """Return selectable LLM and engine profiles using one picker shape."""
+        models = [
             (provider_name, model)
             for provider_name, prov_cfg in self.providers.items()
             for model in prov_cfg.models
         ]
+        models.extend(
+            (
+                "engine",
+                ModelEntry(id=profile.id, name=profile.name, supports_vision=False),
+            )
+            for profile in self.engines.values()
+        )
+        return models
 
 
 def load_config(path: str | Path = "config.yaml") -> Config:
@@ -99,6 +144,9 @@ def load_config(path: str | Path = "config.yaml") -> Config:
             move_timeout=int(game_raw.get("move_timeout", 120)),
             save_pgn=bool(game_raw.get("save_pgn", True)),
             pgn_dir=game_raw.get("pgn_dir", "./games"),
+            starting_fen=(str(game_raw["starting_fen"]).strip() or None)
+            if game_raw.get("starting_fen") is not None
+            else None,
         )
 
         providers_raw = raw.get("providers") or {}
@@ -120,7 +168,37 @@ def load_config(path: str | Path = "config.yaml") -> Config:
                 base_url=prov_raw.get("base_url"),
             )
 
-        config = Config(game=game_cfg, providers=providers)
+        engines_raw = raw.get("engines")
+        engines = _default_engines() if engines_raw is None else {}
+        for profile_id, engine_raw in (engines_raw or {}).items():
+            engine_raw = engine_raw or {}
+            profile = EngineProfile(
+                id=str(profile_id),
+                name=str(engine_raw.get("name", profile_id)),
+                path=str(engine_raw.get("path", "stockfish")),
+                uci_elo=int(engine_raw.get("uci_elo", 1600)),
+                nodes=int(engine_raw.get("nodes", 100_000)),
+                threads=int(engine_raw.get("threads", 1)),
+                hash_mb=int(engine_raw.get("hash_mb", 64)),
+            )
+            engines[profile.id] = profile
+
+        ratings_raw = raw.get("ratings") or {}
+        ratings = RatingConfig(
+            enabled=bool(ratings_raw.get("enabled", True)),
+            database_path=str(ratings_raw.get("database_path", "./data/ratings.sqlite3")),
+            pool_id=str(ratings_raw.get("pool_id", "standard-v1")),
+            algorithm_version=str(ratings_raw.get("algorithm_version", "glicko2-v1")),
+            tau=float(ratings_raw.get("tau", 0.5)),
+            benchmark_rd=float(ratings_raw.get("benchmark_rd", 60.0)),
+        )
+
+        config = Config(
+            game=game_cfg,
+            providers=providers,
+            engines=engines,
+            ratings=ratings,
+        )
         _validate(config)
         return config
 
@@ -138,6 +216,15 @@ def _validate(config: Config) -> None:
         raise ValueError("game.max_retries must be >= 1")
     if config.game.max_output_tokens < 1:
         raise ValueError("game.max_output_tokens must be >= 1")
+    for profile in config.engines.values():
+        if profile.uci_elo < 1:
+            raise ValueError("engine uci_elo must be >= 1")
+        if profile.nodes < 1 or profile.threads < 1 or profile.hash_mb < 1:
+            raise ValueError("engine nodes, threads, and hash_mb must be >= 1")
+    if config.ratings.tau <= 0:
+        raise ValueError("ratings.tau must be > 0")
+    if config.ratings.benchmark_rd <= 0:
+        raise ValueError("ratings.benchmark_rd must be > 0")
     # Providers and their model lists are now optional in config.yaml.
     # Connections and model discovery are handled at runtime via the web UI.
 

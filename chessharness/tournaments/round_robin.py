@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import replace
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator
+from uuid import uuid4
 
 from chessharness.config import Config
 from chessharness.events import GameOverEvent
@@ -32,6 +33,9 @@ from chessharness.tournaments.events import (
     TournamentStartEvent,
 )
 
+if TYPE_CHECKING:
+    from chessharness.ratings.manager import RatingManager
+
 logger = logging.getLogger(__name__)
 
 Pairing = tuple[TournamentParticipant, TournamentParticipant]
@@ -49,6 +53,9 @@ class RoundRobinTournament(Tournament):
         participants: list[TournamentParticipant],
         config: Config,
         player_factory: PlayerFactory,
+        *,
+        rating_manager: RatingManager | None = None,
+        tournament_id: str | None = None,
     ) -> AsyncIterator[TournamentEvent]:
         if len(participants) < 2:
             raise ValueError("Round-robin tournament requires at least 2 participants.")
@@ -61,6 +68,7 @@ class RoundRobinTournament(Tournament):
 
         schedule = _build_schedule(participants)
         total_rounds = len(schedule)
+        run_id = tournament_id or str(uuid4())
 
         yield TournamentStartEvent(
             tournament_type="round_robin",
@@ -69,6 +77,7 @@ class RoundRobinTournament(Tournament):
         )
 
         for round_num, round_pairings in enumerate(schedule, 1):
+            rating_batch_id = f"tournament:{run_id}:round:{round_num}"
             identified_pairings = [
                 (f"R{round_num}-M{match_num}", white, black)
                 for match_num, (white, black) in enumerate(round_pairings, 1)
@@ -93,20 +102,45 @@ class RoundRobinTournament(Tournament):
                         config=config,
                         player_factory=player_factory,
                         out_queue=event_queue,
+                        rating_manager=rating_manager,
+                        rating_batch_id=rating_batch_id,
+                        tournament_id=run_id,
                     )
                 )
                 for match_id, white, black in identified_pairings
             ]
 
-            active_count = len(tasks)
-            while active_count:
-                event = await event_queue.get()
-                if event is None:
-                    active_count -= 1
-                else:
-                    yield event
+            primary_error: BaseException | None = None
+            try:
+                active_count = len(tasks)
+                while active_count:
+                    event = await event_queue.get()
+                    if event is None:
+                        active_count -= 1
+                    else:
+                        yield event
 
-            round_results = [await task for task in tasks]
+                round_results = list(await asyncio.gather(*tasks))
+            except BaseException as exc:
+                primary_error = exc
+                raise
+            finally:
+                unfinished = [task for task in tasks if not task.done()]
+                for task in unfinished:
+                    task.cancel()
+                if unfinished:
+                    await asyncio.gather(*unfinished, return_exceptions=True)
+                if rating_manager is not None:
+                    try:
+                        await _finalize_rating_batch(rating_manager, rating_batch_id)
+                    except BaseException:
+                        if primary_error is None:
+                            raise
+                        logger.exception(
+                            "Rating finalization also failed for round %d",
+                            round_num,
+                        )
+
             self._all_results.extend(round_results)
 
             yield RoundCompleteEvent(
@@ -143,6 +177,9 @@ class RoundRobinTournament(Tournament):
         config: Config,
         player_factory: PlayerFactory,
         out_queue: asyncio.Queue[TournamentEvent | None],
+        rating_manager: RatingManager | None,
+        rating_batch_id: str,
+        tournament_id: str,
     ) -> MatchResult:
         try:
             await out_queue.put(
@@ -155,15 +192,40 @@ class RoundRobinTournament(Tournament):
             )
 
             sub_config = replace(config, game=replace(config.game, save_pgn=False))
+            white_player = player_factory(white)
+            black_player = player_factory(black)
             game_over: GameOverEvent | None = None
-            async for game_event in run_game(
-                sub_config,
-                player_factory(white),
-                player_factory(black),
-            ):
-                await out_queue.put(MatchGameEvent(match_id=match_id, game_event=game_event))
-                if isinstance(game_event, GameOverEvent):
-                    game_over = game_event
+            game_events = (
+                rating_manager.recorded_game(
+                    sub_config,
+                    white_player,
+                    black_player,
+                    batch_id=rating_batch_id,
+                    game_id=f"{rating_batch_id}:match:{match_id}",
+                    auto_finalize=False,
+                    metadata={
+                        "tournament_id": tournament_id,
+                        "tournament_type": "round_robin",
+                        "round_num": round_num,
+                    },
+                )
+                if rating_manager is not None
+                else run_game(sub_config, white_player, black_player)
+            )
+            try:
+                async for game_event in game_events:
+                    await out_queue.put(MatchGameEvent(match_id=match_id, game_event=game_event))
+                    if isinstance(game_event, GameOverEvent):
+                        game_over = game_event
+            finally:
+                await asyncio.gather(
+                    *(
+                        player.close()
+                        for player in (white_player, black_player)
+                        if callable(getattr(player, "close", None))
+                    ),
+                    return_exceptions=True,
+                )
 
             if game_over is None:
                 logger.warning("Match %s ended without GameOverEvent; recording a draw", match_id)
@@ -208,6 +270,20 @@ class RoundRobinTournament(Tournament):
             return result
         finally:
             await out_queue.put(None)
+
+
+async def _finalize_rating_batch(
+    rating_manager: RatingManager,
+    batch_id: str,
+) -> None:
+    """Finalize a started period, or release it if setup failed pre-batch."""
+
+    from chessharness.ratings.store import BatchNotFoundError
+
+    try:
+        await rating_manager.finalize_batch(batch_id)
+    except BatchNotFoundError:
+        await rating_manager.release_batch(batch_id)
 
 
 def _build_schedule(participants: list[TournamentParticipant]) -> list[list[Pairing]]:

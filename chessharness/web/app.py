@@ -18,6 +18,8 @@ import json
 import logging
 import logging.handlers
 import os
+import shutil
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -26,6 +28,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -38,6 +41,9 @@ from chessharness.game import run_game
 from chessharness.players import QueuedHumanPlayer, create_player
 from chessharness.players.llm import LLMPlayer
 from chessharness.providers import create_provider
+from chessharness.ratings.manager import RatingManager
+from chessharness.ratings.ruleset import STANDARD_RULESET_HASH
+from chessharness.ratings.store import RatingStore
 
 config = load_config()
 auth_tokens = load_auth_tokens()
@@ -93,6 +99,36 @@ logger = logging.getLogger("chessharness")
 app = FastAPI(title="ChessHarness")
 
 
+# Rating persistence is deliberately lazy: importing the ASGI app (including
+# from tests and CLI tooling) must not create a database on disk.  The
+# signature also lets tests or a reloaded config switch database cleanly.
+_rating_singleton_lock = threading.Lock()
+_rating_manager: RatingManager | None = None
+_rating_store_signature: tuple[object, ...] | None = None
+
+
+def _get_rating_manager() -> RatingManager:
+    global _rating_manager, _rating_store_signature
+
+    database_path = str(Path(config.ratings.database_path).resolve())
+    signature = (
+        database_path,
+        config.ratings.pool_id,
+        config.ratings.algorithm_version,
+        config.ratings.tau,
+        config.ratings.benchmark_rd,
+    )
+    with _rating_singleton_lock:
+        if _rating_manager is not None and _rating_store_signature != signature:
+            _rating_manager.store.close()
+            _rating_manager = None
+        if _rating_manager is None:
+            store = RatingStore(database_path)
+            _rating_manager = RatingManager(store, config)
+            _rating_store_signature = signature
+        return _rating_manager
+
+
 
 _COPILOT_CHAT_PROVIDER = "copilot_chat"
 _OPENAI_CHATGPT_PROVIDER = "openai_chatgpt"
@@ -105,6 +141,7 @@ _MAX_TOURNAMENT_REPLAY_EVENTS = 5000
 _MAX_GAME_REPLAY_EVENTS = 2000
 _MAX_SINGLE_GAME_REPLAY_EVENTS = 2000
 _MAX_SUBSCRIBER_QUEUE = 500
+_PROVISIONAL_RD = 110.0
 _CODEX_AUTH_PATH = Path.home() / ".codex" / "auth.json"
 
 
@@ -140,6 +177,18 @@ async def _startup() -> None:
 
     if changed:
         save_auth_tokens(auth_tokens)
+
+
+@app.on_event("shutdown")
+def _shutdown_rating_store() -> None:
+    """Close the lazy SQLite connection on a clean ASGI shutdown."""
+
+    global _rating_manager, _rating_store_signature
+    with _rating_singleton_lock:
+        if _rating_manager is not None:
+            _rating_manager.store.close()
+        _rating_manager = None
+        _rating_store_signature = None
 
 # All providers the app knows about, independent of config.yaml
 _KNOWN_PROVIDERS: dict[str, dict] = {
@@ -227,6 +276,11 @@ def _provider_connected(provider_name: str) -> bool:
     providers_cfg = _providers_from_config_with_migrations()
     prov = providers_cfg.get(provider_name)
     return bool((prov and prov.auth_token) or auth_tokens.get(provider_name))
+
+
+def _engine_available(path: str) -> bool:
+    candidate = Path(path)
+    return candidate.is_file() if candidate.parent != Path(".") else shutil.which(path) is not None
 
 
 def _utc_now() -> datetime:
@@ -482,19 +536,134 @@ _DIST = Path(__file__).parent.parent.parent / "frontend" / "dist"
 # REST                                                                         #
 # --------------------------------------------------------------------------- #
 
+def _rating_projection_id() -> str:
+    return f"{config.ratings.pool_id}:{config.ratings.algorithm_version}"
+
+
+def _rating_records(
+    store: RatingStore,
+    algorithm_version: str,
+) -> dict[str, dict[str, int]]:
+    """Aggregate W-D-L from the immutable rated-game ledger."""
+
+    records: dict[str, dict[str, int]] = {}
+
+    def record_for(competitor_id: str) -> dict[str, int]:
+        return records.setdefault(
+            competitor_id, {"wins": 0, "draws": 0, "losses": 0}
+        )
+
+    for game in store.list_games(rated=True):
+        if game.ruleset_id != config.ratings.pool_id:
+            continue
+        batch = store.get_batch(game.batch_id) if game.batch_id else None
+        if (
+            batch is None
+            or batch.status != "finalized"
+            or batch.algorithm_version != algorithm_version
+            or batch.ruleset_hash != STANDARD_RULESET_HASH
+            or game.ruleset_hash != STANDARD_RULESET_HASH
+        ):
+            continue
+        white = record_for(game.white_competitor_id)
+        black = record_for(game.black_competitor_id)
+        if game.result == "1-0":
+            white["wins"] += 1
+            black["losses"] += 1
+        elif game.result == "0-1":
+            black["wins"] += 1
+            white["losses"] += 1
+        elif game.result == "1/2-1/2":
+            white["draws"] += 1
+            black["draws"] += 1
+    return records
+
+
+def _configured_engine_by_competitor_id(competitor_id: str):
+    return next(
+        (
+            profile
+            for profile in config.engines.values()
+            if profile.competitor_id == competitor_id
+        ),
+        None,
+    )
+
+
+def _rating_row(store: RatingStore, current, records: dict[str, dict[str, int]]) -> dict:
+    competitor = store.get_competitor(current.competitor_id)
+    record = records.get(
+        current.competitor_id, {"wins": 0, "draws": 0, "losses": 0}
+    )
+    last_change = None
+    if current.last_batch_id:
+        last_change = next(
+            (
+                change
+                for change in store.get_rating_changes(
+                    current.last_batch_id,
+                    algorithm_version=current.algorithm_version,
+                )
+                if change.competitor_id == current.competitor_id
+            ),
+            None,
+        )
+    engine_profile = _configured_engine_by_competitor_id(current.competitor_id)
+    is_anchor = bool(competitor and competitor.is_anchor)
+    return {
+        "competitor_id": current.competitor_id,
+        "name": competitor.display_name if competitor else current.competitor_id,
+        "kind": competitor.kind if competitor else "unknown",
+        "rating": current.rating,
+        "rd": current.rd,
+        "volatility": current.volatility,
+        "games": (
+            record["wins"] + record["draws"] + record["losses"]
+            if is_anchor
+            else current.games_played
+        ),
+        **record,
+        "is_anchor": is_anchor,
+        "is_provisional": current.rd > _PROVISIONAL_RD,
+        "rating_change": (
+            current.rating - last_change.pre_rating if last_change else None
+        ),
+        "last_batch_id": current.last_batch_id,
+        "updated_at": current.updated_at,
+        "available": (
+            _engine_available(engine_profile.path) if engine_profile else True
+        ),
+    }
+
 @app.get("/api/models")
 def get_models():
     providers_cfg = _providers_with_auth_overrides()
-    return [
+    models = [
         {
             "provider": provider,
             "id": m.id,
             "name": m.name,
             "supports_vision": m.supports_vision,
+            "kind": "llm",
+            "available": True,
         }
         for provider, prov in providers_cfg.items()
         for m in prov.models
     ]
+    models.extend(
+        {
+            "provider": "engine",
+            "id": profile.id,
+            "name": profile.name,
+            "supports_vision": False,
+            "kind": "engine",
+            "available": _engine_available(profile.path),
+            "uci_elo": profile.uci_elo,
+            "nodes": profile.nodes,
+        }
+        for profile in config.engines.values()
+    )
+    return models
 
 
 @app.get("/api/config")
@@ -506,6 +675,163 @@ def get_config():
         "annotate_pgn": config.game.annotate_pgn,
         "max_output_tokens": config.game.max_output_tokens,
         "reasoning_effort": config.game.reasoning_effort,
+        "ratings": {
+            "enabled": config.ratings.enabled,
+            "pool_id": config.ratings.pool_id,
+            "algorithm_version": config.ratings.algorithm_version,
+            "provisional_rd": _PROVISIONAL_RD,
+        },
+        "engines": [
+            {
+                "id": profile.id,
+                "name": profile.name,
+                "available": _engine_available(profile.path),
+                "uci_elo": profile.uci_elo,
+                "nodes": profile.nodes,
+                "threads": profile.threads,
+                "hash_mb": profile.hash_mb,
+                "competitor_id": profile.competitor_id,
+            }
+            for profile in config.engines.values()
+        ],
+    }
+
+
+@app.get("/api/ratings")
+def get_ratings():
+    if not config.ratings.enabled:
+        return {
+            "enabled": False,
+            "pool_id": config.ratings.pool_id,
+            "algorithm_version": config.ratings.algorithm_version,
+            "ratings": [],
+        }
+
+    store = _get_rating_manager().store
+    projection_id = _rating_projection_id()
+    records = _rating_records(store, projection_id)
+    rows = [
+        _rating_row(store, current, records)
+        for current in store.list_current_ratings(algorithm_version=projection_id)
+    ]
+
+    # Make configured anchors visible before their first benchmark game.  This
+    # is a presentation-only seed; the durable row is created by begin_batch.
+    known_ids = {row["competitor_id"] for row in rows}
+    for profile in config.engines.values():
+        if profile.competitor_id in known_ids:
+            continue
+        rows.append(
+            {
+                "competitor_id": profile.competitor_id,
+                "name": profile.name,
+                "kind": "engine",
+                "rating": float(profile.uci_elo),
+                "rd": config.ratings.benchmark_rd,
+                "volatility": 0.06,
+                "games": 0,
+                "wins": 0,
+                "draws": 0,
+                "losses": 0,
+                "is_anchor": True,
+                "is_provisional": False,
+                "rating_change": None,
+                "last_batch_id": None,
+                "updated_at": None,
+                "available": _engine_available(profile.path),
+            }
+        )
+    rows.sort(key=lambda row: (-float(row["rating"]), str(row["competitor_id"])))
+    return {
+        "enabled": True,
+        "pool_id": config.ratings.pool_id,
+        "algorithm_version": config.ratings.algorithm_version,
+        "ratings": rows,
+    }
+
+
+@app.get("/api/ratings/{competitor_id:path}/history")
+def get_rating_history(competitor_id: str):
+    if not config.ratings.enabled:
+        raise HTTPException(status_code=404, detail="Ratings are disabled")
+
+    store = _get_rating_manager().store
+    projection_id = _rating_projection_id()
+    competitor = store.get_competitor(competitor_id)
+    current = store.get_current_rating(
+        competitor_id, algorithm_version=projection_id
+    )
+    engine_profile = _configured_engine_by_competitor_id(competitor_id)
+    if competitor is None and current is None and engine_profile is None:
+        raise HTTPException(status_code=404, detail="Unknown competitor")
+
+    history = []
+    for batch in reversed(store.list_batches(status="finalized")):
+        if batch.algorithm_version != projection_id:
+            continue
+        change = next(
+            (
+                item
+                for item in store.get_rating_changes(
+                    batch.batch_id, algorithm_version=projection_id
+                )
+                if item.competitor_id == competitor_id
+            ),
+            None,
+        )
+        if change is None:
+            continue
+        history.append(
+            {
+                "batch_id": batch.batch_id,
+                "finalized_at": batch.finalized_at,
+                "rating_before": change.pre_rating,
+                "rating_after": change.post_rating,
+                "rating_change": change.post_rating - change.pre_rating,
+                "rd_before": change.pre_rd,
+                "rd_after": change.post_rd,
+                "volatility_before": change.pre_volatility,
+                "volatility_after": change.post_volatility,
+                "games_before": change.pre_games_played,
+                "games_after": change.post_games_played,
+            }
+        )
+
+    is_anchor = bool((competitor and competitor.is_anchor) or engine_profile is not None)
+    record = _rating_records(store, projection_id).get(
+        competitor_id, {"wins": 0, "draws": 0, "losses": 0}
+    )
+    return {
+        "competitor_id": competitor_id,
+        "name": (
+            competitor.display_name
+            if competitor
+            else engine_profile.name if engine_profile else competitor_id
+        ),
+        "kind": competitor.kind if competitor else "engine",
+        "is_anchor": is_anchor,
+        "current": (
+            {
+                "rating": current.rating,
+                "rd": current.rd,
+                "volatility": current.volatility,
+                "games": (
+                    record["wins"] + record["draws"] + record["losses"]
+                    if is_anchor
+                    else current.games_played
+                ),
+                "updated_at": current.updated_at,
+            }
+            if current
+            else {
+                "rating": float(engine_profile.uci_elo),
+                "rd": config.ratings.benchmark_rd,
+                "volatility": 0.06,
+                "games": 0,
+                "updated_at": None,
+            }
+        ),
+        "history": history,
     }
 
 
@@ -613,7 +939,14 @@ async def get_auth_providers():
             )
         return {"provider": name, "connected": ok}
 
-    return await asyncio.gather(*[check(name) for name in provider_names])
+    rows = await asyncio.gather(*[check(name) for name in provider_names])
+    rows.append(
+        {
+            "provider": "engine",
+            "connected": any(_engine_available(profile.path) for profile in config.engines.values()),
+        }
+    )
+    return rows
 
 
 @app.post("/api/auth/connect")
@@ -1347,7 +1680,14 @@ class _TournamentBroadcaster:
 
     async def _run(self, participants, config, player_factory, tournament) -> None:
         try:
-            async for event in tournament.run(participants, config, player_factory):
+            rating_manager = _get_rating_manager() if config.ratings.enabled else None
+            async for event in tournament.run(
+                participants,
+                config,
+                player_factory,
+                rating_manager=rating_manager,
+                tournament_id=str(uuid4()),
+            ):
                 t_payload = _to_json_dict(event)
                 await self._broadcast_all(t_payload)
 
@@ -1438,16 +1778,23 @@ async def tournament_start(payload: dict):
     }
     """
     if _tournament_broadcaster.status.get("state") == "running":
-        from fastapi import HTTPException
         raise HTTPException(status_code=409, detail="A tournament is already running.")
 
-    tournament_type = payload.get("tournament_type", "knockout")
+    benchmark_mode = bool(payload.get("benchmark"))
+    tournament_type = "round_robin" if benchmark_mode else payload.get("tournament_type", "knockout")
     draw_handling = payload.get("draw_handling", "rematch")
     raw_participants = payload.get("participants", [])
 
     if len(raw_participants) < 2:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Need at least 2 participants.")
+    if benchmark_mode and (
+        len(raw_participants) != 2
+        or sum(item.get("provider") == "engine" for item in raw_participants) != 1
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="A benchmark requires exactly one model and one engine anchor.",
+        )
 
     providers_cfg = await _providers_with_auth_overrides_async()
 
@@ -1456,15 +1803,30 @@ async def tournament_start(payload: dict):
         provider_name = rp["provider"]
         model_id = rp["model_id"]
         display_name = rp.get("name", model_id)
-        model_entry = _find_model_entry(providers_cfg, provider_name, model_id)
-        if model_entry is None:
-            from chessharness.config import ModelEntry as _ME
-            model_entry = _ME(id=model_id, name=display_name)
+        if provider_name == "engine":
+            profile = config.engines.get(model_id)
+            if profile is None:
+                raise HTTPException(status_code=400, detail=f"Unknown engine profile: {model_id}")
+            if not _engine_available(profile.path):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Engine binary is unavailable for {profile.name!r}: {profile.path}",
+                )
+            model_entry = ModelEntry(id=profile.id, name=profile.name, supports_vision=False)
+        else:
+            model_entry = _find_model_entry(providers_cfg, provider_name, model_id)
+            if model_entry is None:
+                model_entry = ModelEntry(id=model_id, name=display_name)
         participants.append(
             TournamentParticipant(
                 provider_name=provider_name,
                 model=model_entry,
                 seed=i,
+                rating_id=(
+                    config.engines[model_id].competitor_id
+                    if provider_name == "engine" and model_id in config.engines
+                    else None
+                ),
             )
         )
 
@@ -1482,6 +1844,8 @@ async def tournament_start(payload: dict):
             overrides["annotate_pgn"] = bool(ui_settings["annotate_pgn"])
         if "max_output_tokens" in ui_settings:
             overrides["max_output_tokens"] = max(1, int(ui_settings["max_output_tokens"]))
+        if "move_timeout" in ui_settings:
+            overrides["move_timeout"] = max(1, int(ui_settings["move_timeout"]))
         if "reasoning_effort" in ui_settings:
             effort = ui_settings["reasoning_effort"]
             if effort in ("low", "medium", "high", None, "", "default", "auto", "none"):
@@ -1493,6 +1857,18 @@ async def tournament_start(payload: dict):
             overrides["starting_fen"] = fen if fen else None
         if overrides:
             game_cfg = replace(game_cfg, **overrides)
+    if benchmark_mode:
+        game_cfg = replace(
+            game_cfg,
+            max_retries=3,
+            board_input="text",
+            show_legal_moves=True,
+            annotate_pgn=False,
+            max_output_tokens=5120,
+            reasoning_effort=None,
+            move_timeout=120,
+            starting_fen=None,
+        )
     tournament_config = replace(config, game=game_cfg)
 
     copilot_refresher = _make_copilot_token_refresher()
@@ -1506,13 +1882,15 @@ async def tournament_start(payload: dict):
         return None
 
     def player_factory(participant: TournamentParticipant):
-        provider = create_provider(
-            participant.provider_name,
-            participant.model.id,
-            providers_cfg,
-            supports_vision_override=participant.model.supports_vision,
-            token_refresher=_token_refresher_for(participant.provider_name),
-        )
+        provider = None
+        if participant.provider_name != "engine":
+            provider = create_provider(
+                participant.provider_name,
+                participant.model.id,
+                providers_cfg,
+                supports_vision_override=participant.model.supports_vision,
+                token_refresher=_token_refresher_for(participant.provider_name),
+            )
         return create_player(
             participant.provider_name,
             participant.display_name,
@@ -1521,6 +1899,8 @@ async def tournament_start(payload: dict):
             game_cfg.move_timeout,
             game_cfg.max_output_tokens,
             game_cfg.reasoning_effort,
+            participant.model.id,
+            config.engines.get(participant.model.id),
         )
 
     tournament = create_tournament(tournament_type, draw_handling=draw_handling)
@@ -1647,6 +2027,10 @@ def _normalize_player_spec(spec: dict, color: str) -> dict:
     if player_type == "llm":
         normalized["provider"] = spec["provider"]
         normalized["model_id"] = spec["model_id"]
+    elif player_type == "engine":
+        normalized["profile_id"] = (
+            spec.get("profile_id") or spec.get("model_id") or "stockfish-1600"
+        )
     return normalized
 
 
@@ -1709,7 +2093,20 @@ async def _build_single_game_players(start_payload: dict):
         if spec["kind"] == "human":
             return QueuedHumanPlayer(name=spec["name"])
         if spec["kind"] == "engine":
-            return create_player("engine", spec["name"])
+            profile_id = spec["profile_id"]
+            profile = config.engines.get(profile_id)
+            if profile is None:
+                raise ValueError(f"Unknown engine profile: {profile_id}")
+            if not _engine_available(profile.path):
+                raise ValueError(
+                    f"Engine binary is unavailable for {profile.name!r}: {profile.path}"
+                )
+            return create_player(
+                "engine",
+                spec["name"] or profile.name,
+                model_id=profile.id,
+                engine_profile=profile,
+            )
 
         provider_name = spec["provider"]
         model_id = spec["model_id"]
@@ -1729,6 +2126,7 @@ async def _build_single_game_players(start_payload: dict):
             session_config.game.move_timeout,
             session_config.game.max_output_tokens,
             session_config.game.reasoning_effort,
+            model_id,
         )
 
     white_player = _build_player(player_specs["white"])
@@ -1965,16 +2363,78 @@ class _SingleGameBroadcaster:
         return False
 
     async def _run(self, start_payload: dict, stop_event: asyncio.Event) -> None:
+        session = None
         try:
             session = await _build_single_game_players(start_payload)
             self._session = session
-            async for event in run_game(session.config, session.white_player, session.black_player, stop_event):
+            batch_id = f"single:{uuid4()}"
+            game_id = str(uuid4())
+            if config.ratings.enabled:
+                manager = _get_rating_manager()
+                event_stream = manager.recorded_game(
+                    session.config,
+                    session.white_player,
+                    session.black_player,
+                    batch_id=batch_id,
+                    game_id=game_id,
+                    stop_event=stop_event,
+                    auto_finalize=True,
+                    metadata={"source": "web-single-game"},
+                )
+            else:
+                event_stream = run_game(
+                    session.config,
+                    session.white_player,
+                    session.black_player,
+                    stop_event,
+                )
+
+            async for event in event_stream:
                 payload = {"type": type(event).__name__, **dataclasses.asdict(event)}
                 await self._broadcast(payload)
+
+            if config.ratings.enabled:
+                game = manager.store.get_game(game_id)
+                changes = manager.store.get_rating_changes(
+                    batch_id, algorithm_version=manager.projection_id
+                )
+                await self._broadcast(
+                    {
+                        "type": "RatingUpdateEvent",
+                        "game_id": game_id,
+                        "batch_id": batch_id,
+                        "rated": bool(game and game.rated),
+                        "unrated_reason": game.unrated_reason if game else None,
+                        "changes": [
+                            {
+                                "competitor_id": change.competitor_id,
+                                "rating_before": change.pre_rating,
+                                "rating_after": change.post_rating,
+                                "rating_change": (
+                                    change.post_rating - change.pre_rating
+                                ),
+                                "rd_before": change.pre_rd,
+                                "rd_after": change.post_rd,
+                                "volatility_after": change.post_volatility,
+                                "games": change.post_games_played,
+                            }
+                            for change in changes
+                        ],
+                    }
+                )
         except Exception as exc:
             logger.error("Single game error: %s", exc, exc_info=True)
             await self._broadcast({"type": "error", "message": str(exc)})
         finally:
+            if session is not None:
+                await asyncio.gather(
+                    *(
+                        player.close()
+                        for player in (session.white_player, session.black_player)
+                        if callable(getattr(player, "close", None))
+                    ),
+                    return_exceptions=True,
+                )
             self._session = None
 
 

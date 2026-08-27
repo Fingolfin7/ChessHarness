@@ -39,7 +39,7 @@ export default function ModelPicker({
   // Only expose models from providers that are currently connected
   const availableModels = useMemo(() => {
     if (!authReady) return []
-    return models.filter(m => authProviders[m.provider])
+    return models.filter(m => authProviders[m.provider] && m.available !== false)
   }, [models, authProviders, authReady])
 
   // Group available models by provider for <optgroup> display
@@ -78,6 +78,13 @@ export default function ModelPicker({
     }
     if (!value) return null
     const model = JSON.parse(value)
+    if (model.provider === 'engine' || model.kind === 'engine') {
+      return {
+        kind: 'engine',
+        profile_id: model.id,
+        name: model.name,
+      }
+    }
     return {
       kind: 'llm',
       provider: model.provider,

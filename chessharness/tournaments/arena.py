@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator
 
 from chessharness.config import Config, GameConfig
 from chessharness.tournaments.base import (
@@ -13,6 +13,9 @@ from chessharness.tournaments.base import (
 )
 from chessharness.tournaments.events import TournamentEvent
 
+if TYPE_CHECKING:
+    from chessharness.ratings.manager import RatingManager
+
 
 class ArenaTournament(Tournament):
     """Time-limited, immediate re-pairing after each game. Not yet implemented."""
@@ -22,6 +25,9 @@ class ArenaTournament(Tournament):
         participants: list[TournamentParticipant],
         config: Config,
         player_factory: PlayerFactory,
+        *,
+        rating_manager: RatingManager | None = None,
+        tournament_id: str | None = None,
     ) -> AsyncIterator[TournamentEvent]:
         raise NotImplementedError("Arena tournament is not yet implemented.")
 

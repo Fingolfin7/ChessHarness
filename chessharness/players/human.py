@@ -9,13 +9,18 @@ wait for a browser move without coupling the core game loop to WebSocket code.
 from __future__ import annotations
 
 import asyncio
+from uuid import uuid4
 
 from chessharness.players.base import Player, GameState, MoveResponse
 
 
 class HumanPlayer(Player):
     def __init__(self, name: str) -> None:
-        super().__init__(name=name, player_type="human")
+        super().__init__(
+            name=name,
+            player_type="human",
+            competitor_id=f"human:{uuid4()}",
+        )
 
     async def get_move(self, state: GameState, chunk_queue: asyncio.Queue | None = None) -> MoveResponse:
         legal_preview = ", ".join(state.legal_moves_san[:10])
@@ -36,7 +41,11 @@ class QueuedHumanPlayer(Player):
     """Human player backed by an async queue populated by the web layer."""
 
     def __init__(self, name: str) -> None:
-        super().__init__(name=name, player_type="human")
+        super().__init__(
+            name=name,
+            player_type="human",
+            competitor_id=f"human:{uuid4()}",
+        )
         self._moves: asyncio.Queue[str] = asyncio.Queue()
 
     def submit_move(self, move: str) -> None:

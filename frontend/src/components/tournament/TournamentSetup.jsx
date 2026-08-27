@@ -9,8 +9,8 @@
  * instead of showing an error.
  */
 
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext.jsx'
 import ModelDropdown, { VisionIcon } from '../ModelDropdown.jsx'
 
@@ -52,6 +52,9 @@ function ModelSelect({ index, value, modelsByProvider, onChange, onRemove, canRe
 
 export default function TournamentSetup() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const benchmarkCompetitorId = searchParams.get('benchmark')
+  const benchmarkApplied = useRef(false)
   const { models, authProviders, authReady, defaultSettings } = useAppContext()
 
   const [players, setPlayers] = useState(['', ''])
@@ -70,7 +73,7 @@ export default function TournamentSetup() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (!defaultSettings) return
+    if (!defaultSettings || benchmarkCompetitorId) return
     setSettings(s => ({
       ...s,
       maxRetries: defaultSettings.maxRetries,
@@ -80,12 +83,12 @@ export default function TournamentSetup() {
       maxOutputTokens: defaultSettings.maxOutputTokens,
       reasoningEffort: defaultSettings.reasoningEffort,
     }))
-  }, [defaultSettings])
+  }, [benchmarkCompetitorId, defaultSettings])
 
   // Only show models from providers that are currently connected.
   const availableModels = useMemo(() => {
     if (!authReady) return []
-    return models.filter(m => authProviders[m.provider])
+    return models.filter(m => authProviders[m.provider] && m.available !== false)
   }, [models, authProviders, authReady])
 
   const modelsByProvider = useMemo(() => {
@@ -96,6 +99,37 @@ export default function TournamentSetup() {
     }
     return out
   }, [availableModels])
+
+  // Ratings history links here with a stable competitor identity. A double
+  // round robin gives the model one game with each colour against the anchor.
+  useEffect(() => {
+    const competitorId = benchmarkCompetitorId
+    if (!competitorId || benchmarkApplied.current || !authReady) return
+    if (availableModels.length === 0) return
+
+    const model = availableModels.find(
+      item => `llm:${item.provider}:${item.id}` === competitorId,
+    )
+    const anchor = availableModels.find(item => item.provider === 'engine')
+    if (!model || !anchor) {
+      setError('The selected model or Stockfish benchmark is not currently available.')
+      benchmarkApplied.current = true
+      return
+    }
+
+    setPlayers([JSON.stringify(model), JSON.stringify(anchor)])
+    setTournamentType('round_robin')
+    setSettings({
+      maxRetries: 3,
+      showLegalMoves: true,
+      boardInput: 'text',
+      annotatePgn: false,
+      maxOutputTokens: 5120,
+      reasoningEffort: 'default',
+      startingFen: '',
+    })
+    benchmarkApplied.current = true
+  }, [authReady, availableModels, benchmarkCompetitorId])
 
   // Clear selected participants whose providers become disconnected.
   useEffect(() => {
@@ -151,6 +185,7 @@ export default function TournamentSetup() {
         body: JSON.stringify({
           tournament_type: tournamentType,
           draw_handling: drawHandling,
+          benchmark: Boolean(benchmarkCompetitorId),
           participants,
           settings: {
             max_retries: settings.maxRetries,
@@ -160,6 +195,7 @@ export default function TournamentSetup() {
             max_output_tokens: settings.maxOutputTokens,
             reasoning_effort: settings.reasoningEffort,
             starting_fen: settings.startingFen.trim() || null,
+            ...(benchmarkCompetitorId ? { move_timeout: 120 } : {}),
           },
         }),
       })
@@ -199,6 +235,12 @@ export default function TournamentSetup() {
         </div>
 
         {error && <div className="setup-error">{error}</div>}
+
+        {benchmarkCompetitorId && !error && (
+          <p className="ts-bye-note">
+            Benchmark mode uses the canonical standard-v1 settings and plays both colours.
+          </p>
+        )}
 
         {!authReady && (
           <p className="ts-bye-note">Checking providers…</p>
@@ -269,6 +311,7 @@ export default function TournamentSetup() {
               id="tournament-format"
               className="settings-select"
               value={tournamentType}
+              disabled={Boolean(benchmarkCompetitorId)}
               onChange={e => setTournamentType(e.target.value)}
             >
               {FORMAT_OPTIONS.map(o => (
@@ -302,6 +345,7 @@ export default function TournamentSetup() {
               max="10"
               className="settings-number"
               value={settings.maxRetries}
+              disabled={Boolean(benchmarkCompetitorId)}
               onChange={e => setSettings(s => ({ ...s, maxRetries: Math.max(1, parseInt(e.target.value) || 1) }))}
             />
           </div>
@@ -312,6 +356,7 @@ export default function TournamentSetup() {
               id="ts-board-input"
               className="settings-select"
               value={settings.boardInput}
+              disabled={Boolean(benchmarkCompetitorId)}
               onChange={e => setSettings(s => ({ ...s, boardInput: e.target.value }))}
             >
               <option value="text">Text (FEN + moves)</option>
@@ -328,6 +373,7 @@ export default function TournamentSetup() {
               max="32768"
               className="settings-number"
               value={settings.maxOutputTokens}
+              disabled={Boolean(benchmarkCompetitorId)}
               onChange={e => setSettings(s => ({ ...s, maxOutputTokens: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
             />
           </div>
@@ -338,6 +384,7 @@ export default function TournamentSetup() {
               id="ts-reasoning"
               className="settings-select"
               value={settings.reasoningEffort}
+              disabled={Boolean(benchmarkCompetitorId)}
               onChange={e => setSettings(s => ({ ...s, reasoningEffort: e.target.value }))}
             >
               <option value="default">Default</option>
@@ -354,6 +401,7 @@ export default function TournamentSetup() {
                 type="checkbox"
                 className="settings-checkbox"
                 checked={settings.showLegalMoves}
+                disabled={Boolean(benchmarkCompetitorId)}
                 onChange={e => setSettings(s => ({ ...s, showLegalMoves: e.target.checked }))}
               />
               Include legal move list in prompt
@@ -367,6 +415,7 @@ export default function TournamentSetup() {
                 type="checkbox"
                 className="settings-checkbox"
                 checked={settings.annotatePgn}
+                disabled={Boolean(benchmarkCompetitorId)}
                 onChange={e => setSettings(s => ({ ...s, annotatePgn: e.target.checked }))}
               />
               Export annotated PGN (include model reasoning)
@@ -380,6 +429,7 @@ export default function TournamentSetup() {
               type="text"
               className="settings-fen"
               value={settings.startingFen}
+              disabled={Boolean(benchmarkCompetitorId)}
               onChange={e => setSettings(s => ({ ...s, startingFen: e.target.value }))}
               placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
               spellCheck={false}

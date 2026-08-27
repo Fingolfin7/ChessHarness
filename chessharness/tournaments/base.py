@@ -18,6 +18,7 @@ from chessharness.events import GameResult
 from chessharness.players.base import Player
 
 if TYPE_CHECKING:
+    from chessharness.ratings.manager import RatingManager
     from chessharness.tournaments.events import TournamentEvent
 
 
@@ -31,10 +32,23 @@ class TournamentParticipant:
     provider_name: str
     model: ModelEntry
     seed: int  # 1-based; seed 1 = top seed (first picked)
+    rating_id: str | None = None
 
     @property
     def display_name(self) -> str:
         return self.model.name
+
+    @property
+    def player_type(self) -> str:
+        return "engine" if self.provider_name == "engine" else "llm"
+
+    @property
+    def competitor_id(self) -> str:
+        if self.rating_id:
+            return self.rating_id
+        if self.player_type == "engine":
+            return f"engine:{self.model.id}"
+        return f"llm:{self.provider_name}:{self.model.id}"
 
     # Manual hash/eq so this can be used as a dict key even though ModelEntry
     # is a mutable dataclass (not hashable by default).
@@ -116,6 +130,9 @@ class Tournament(ABC):
         participants: list[TournamentParticipant],
         config: Config,
         player_factory: PlayerFactory,
+        *,
+        rating_manager: RatingManager | None = None,
+        tournament_id: str | None = None,
     ) -> AsyncIterator[TournamentEvent]:
         """
         Run the full tournament, yielding events as play progresses.

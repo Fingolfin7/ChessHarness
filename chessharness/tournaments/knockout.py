@@ -18,7 +18,8 @@ import logging
 import math
 import random
 from dataclasses import replace
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator
+from uuid import uuid4
 
 from chessharness.config import Config, GameConfig
 from chessharness.events import GameOverEvent
@@ -44,6 +45,9 @@ from chessharness.tournaments.events import (
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from chessharness.ratings.manager import RatingManager
+
 
 class KnockoutTournament(Tournament):
     """Single-elimination knockout tournament."""
@@ -62,6 +66,9 @@ class KnockoutTournament(Tournament):
         participants: list[TournamentParticipant],
         config: Config,
         player_factory: PlayerFactory,
+        *,
+        rating_manager: RatingManager | None = None,
+        tournament_id: str | None = None,
     ) -> AsyncIterator[TournamentEvent]:
         if len(participants) < 2:
             raise ValueError("Knockout tournament requires at least 2 participants.")
@@ -72,6 +79,7 @@ class KnockoutTournament(Tournament):
 
         bracket = _build_bracket(participants)
         total_rounds = len(bracket)
+        run_id = tournament_id or str(uuid4())
 
         yield TournamentStartEvent(
             tournament_type="knockout",
@@ -113,22 +121,37 @@ class KnockoutTournament(Tournament):
                         config=config,
                         player_factory=player_factory,
                         out_queue=event_queue,
+                        rating_manager=rating_manager,
+                        rating_batch_id=(
+                            f"tournament:{run_id}:match:{round_num}:{mid}"
+                            if b is not None
+                            else None
+                        ),
+                        tournament_id=run_id,
                     )
                 )
                 for mid, w, b in match_pairings
             ]
 
-            # Drain the shared queue, yielding events as they arrive
-            while active_count > 0:
-                event = await event_queue.get()
-                if event is None:
-                    active_count -= 1
-                else:
-                    yield event
+            try:
+                # Drain the shared queue, yielding events as they arrive.
+                while active_count > 0:
+                    event = await event_queue.get()
+                    if event is None:
+                        active_count -= 1
+                    else:
+                        yield event
 
-            # Collect results from tasks (each task returns (MatchResult, winner))
-            for task in tasks:
-                result, winner = await task
+                task_results = await asyncio.gather(*tasks)
+            finally:
+                unfinished = [task for task in tasks if not task.done()]
+                for task in unfinished:
+                    task.cancel()
+                if unfinished:
+                    await asyncio.gather(*unfinished, return_exceptions=True)
+
+            # Collect results from tasks (each returns MatchResult and winner).
+            for result, winner in task_results:
                 round_results.append(result)
                 self._all_results.append(result)
                 next_survivors.append(winner)
@@ -168,12 +191,27 @@ class KnockoutTournament(Tournament):
         config: Config,
         player_factory: PlayerFactory,
         out_queue: asyncio.Queue,
+        rating_manager: RatingManager | None,
+        rating_batch_id: str | None,
+        tournament_id: str,
     ) -> tuple[MatchResult, TournamentParticipant]:
         """
         Run a single match (with possible rematches on draw).
         Puts TournamentEvents into out_queue; sends None sentinel when done.
         Returns (MatchResult of final deciding game, winning TournamentParticipant).
         """
+        rating_finalized = False
+        primary_error: BaseException | None = None
+
+        async def finalize_ratings() -> None:
+            nonlocal rating_finalized
+            if rating_manager is None or rating_batch_id is None or rating_finalized:
+                return
+            try:
+                await _finalize_rating_batch(rating_manager, rating_batch_id)
+            finally:
+                rating_finalized = True
+
         try:
             # Handle bye
             if participant_b is None:
@@ -220,10 +258,38 @@ class KnockoutTournament(Tournament):
                 black_player = player_factory(black)
 
                 game_over: GameOverEvent | None = None
-                async for game_event in run_game(sub_config, white_player, black_player):
-                    await out_queue.put(MatchGameEvent(match_id=match_id, game_event=game_event))
-                    if isinstance(game_event, GameOverEvent):
-                        game_over = game_event
+                game_events = (
+                    rating_manager.recorded_game(
+                        sub_config,
+                        white_player,
+                        black_player,
+                        batch_id=rating_batch_id,
+                        game_id=f"{rating_batch_id}:game:{game_num}",
+                        auto_finalize=False,
+                        metadata={
+                            "tournament_id": tournament_id,
+                            "tournament_type": "knockout",
+                            "round_num": round_num,
+                            "match_id": match_id,
+                        },
+                    )
+                    if rating_manager is not None and rating_batch_id is not None
+                    else run_game(sub_config, white_player, black_player)
+                )
+                try:
+                    async for game_event in game_events:
+                        await out_queue.put(MatchGameEvent(match_id=match_id, game_event=game_event))
+                        if isinstance(game_event, GameOverEvent):
+                            game_over = game_event
+                finally:
+                    await asyncio.gather(
+                        *(
+                            player.close()
+                            for player in (white_player, black_player)
+                            if callable(getattr(player, "close", None))
+                        ),
+                        return_exceptions=True,
+                    )
 
                 if game_over is None:
                     logger.warning("Match %s game %d ended without GameOverEvent", match_id, game_num)
@@ -250,6 +316,7 @@ class KnockoutTournament(Tournament):
                     loser = black if winner_participant is white else white
                     self._standings[loser].losses += 1
 
+                    await finalize_ratings()
                     await out_queue.put(
                         MatchCompleteEvent(
                             match_id=match_id,
@@ -300,6 +367,7 @@ class KnockoutTournament(Tournament):
                     total_moves=result.total_moves,
                     winner=winner_participant,
                 )
+                await finalize_ratings()
                 await out_queue.put(
                     MatchCompleteEvent(
                         match_id=match_id,
@@ -310,8 +378,35 @@ class KnockoutTournament(Tournament):
                 )
                 return final_result, winner_participant
 
+        except BaseException as exc:
+            primary_error = exc
+            raise
         finally:
+            if not rating_finalized:
+                try:
+                    await finalize_ratings()
+                except BaseException:
+                    if primary_error is None:
+                        raise
+                    logger.exception(
+                        "Rating finalization also failed for match %s",
+                        match_id,
+                    )
             await out_queue.put(None)  # sentinel: signals this match is done
+
+
+async def _finalize_rating_batch(
+    rating_manager: RatingManager,
+    batch_id: str,
+) -> None:
+    """Finalize a started match period, or release a failed pre-batch setup."""
+
+    from chessharness.ratings.store import BatchNotFoundError
+
+    try:
+        await rating_manager.finalize_batch(batch_id)
+    except BatchNotFoundError:
+        await rating_manager.release_batch(batch_id)
 
 
 # ------------------------------------------------------------------ #

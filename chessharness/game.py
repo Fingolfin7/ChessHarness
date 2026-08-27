@@ -53,6 +53,10 @@ async def run_game(
         white_name=white_player.name,
         black_name=black_player.name,
         starting_fen=board.fen,
+        white_player_type=white_player.player_type,
+        black_player_type=black_player.player_type,
+        white_competitor_id=white_player.competitor_id,
+        black_competitor_id=black_player.competitor_id,
     )
 
     while not board.is_game_over:
@@ -81,6 +85,7 @@ async def run_game(
             board_ascii=render_ascii(board._board),
             legal_moves_san=board.legal_moves_san(),
             move_history_san=board.move_history_san(),
+            player_type=current_player.player_type,
         )
 
         applied = False
@@ -170,6 +175,7 @@ async def run_game(
                     error=error,
                     attempt_num=attempt,
                     provider_metadata={},
+                    failure_kind="provider_error",
                 )
                 previous_invalid = ""
                 previous_error = error
@@ -193,6 +199,7 @@ async def run_game(
                     error=_augment_error_with_provider_context(error, response.provider_metadata),
                     attempt_num=attempt,
                     provider_metadata=response.provider_metadata,
+                    failure_kind="empty_model_output",
                 )
                 previous_invalid = ""
                 previous_error = _augment_error_with_provider_context(error, response.provider_metadata)
@@ -235,6 +242,10 @@ async def run_game(
                     error=error,
                     attempt_num=attempt,
                     provider_metadata=response.provider_metadata,
+                    failure_kind={
+                        "illegal": "illegal_move",
+                        "ambiguous": "ambiguous_move",
+                    }.get(error_kind, "unparseable_move"),
                 )
                 previous_invalid = response.move
                 previous_error = error

@@ -61,6 +61,7 @@ _UCI_RE = re.compile(r"\b([a-h][1-8][a-h][1-8][qrbnQRBN]?)\b")
 _SAN_RE = re.compile(r"\b([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|O-O-O|O-O)\b")
 
 logger = logging.getLogger(__name__)
+PROMPT_VERSION = "llm-chess-v1"
 
 
 @dataclass(frozen=True)
@@ -100,8 +101,9 @@ class LLMPlayer(Player):
         move_timeout: int = 120,
         max_output_tokens: int = 5120,
         reasoning_effort: str | None = None,
+        competitor_id: str | None = None,
     ) -> None:
-        super().__init__(name, player_type="llm")
+        super().__init__(name, player_type="llm", competitor_id=competitor_id)
         self._provider = provider
         self._logger = logger
         self._show_legal_moves = show_legal_moves

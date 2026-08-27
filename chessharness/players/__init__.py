@@ -15,6 +15,7 @@ from chessharness.players.llm import LLMPlayer
 from chessharness.players.human import HumanPlayer, QueuedHumanPlayer
 from chessharness.players.engine import EnginePlayer
 from chessharness.providers.base import LLMProvider
+from chessharness.config import EngineProfile
 
 __all__ = [
     "Player",
@@ -35,6 +36,8 @@ def create_player(
     move_timeout: int = 120,
     max_output_tokens: int = 5120,
     reasoning_effort: str | None = None,
+    model_id: str | None = None,
+    engine_profile: EngineProfile | None = None,
 ) -> Player:
     """
     Instantiate the correct Player.
@@ -46,7 +49,19 @@ def create_player(
         case "human":
             return HumanPlayer(name=display_name)
         case "engine":
-            return EnginePlayer(name=display_name)
+            profile = engine_profile or EngineProfile(
+                id=model_id or "stockfish-1600",
+                name=display_name,
+            )
+            return EnginePlayer(
+                name=display_name,
+                engine_path=profile.path,
+                uci_elo=profile.uci_elo,
+                node_limit=profile.nodes,
+                threads=profile.threads,
+                hash_mb=profile.hash_mb,
+                competitor_id=profile.competitor_id,
+            )
         case _:
             if provider is None:
                 raise ValueError(
@@ -59,5 +74,10 @@ def create_player(
                 move_timeout=move_timeout,
                 max_output_tokens=max_output_tokens,
                 reasoning_effort=reasoning_effort,
+                competitor_id=(
+                    f"llm:{provider_name}:{model_id}"
+                    if model_id
+                    else None
+                ),
             )
 

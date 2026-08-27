@@ -4,6 +4,7 @@ import Layout from './components/Layout.jsx'
 import GamePage from './pages/GamePage.jsx'
 import TournamentPage from './components/tournament/TournamentPage.jsx'
 import TournamentSetup from './components/tournament/TournamentSetup.jsx'
+import RatingsPage from './pages/RatingsPage.jsx'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
             <Route path="/game" element={<GamePage />} />
             <Route path="/tournament/setup" element={<TournamentSetup />} />
             <Route path="/tournament" element={<TournamentPage />} />
+            <Route path="/ratings" element={<RatingsPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -15,6 +15,7 @@ import asyncio
 import signal
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 from chessharness.cli.tournament_display import console, display_tournament_event
 from chessharness.cli.tournament_selector import (
@@ -25,6 +26,8 @@ from chessharness.config import load_config
 from chessharness.players import create_player
 from chessharness.players.base import Player
 from chessharness.providers import create_provider
+from chessharness.ratings.manager import RatingManager
+from chessharness.ratings.store import RatingStore
 from chessharness.tournaments import create_tournament
 from chessharness.tournaments.base import PlayerFactory, TournamentParticipant
 from chessharness.tournaments.events import TournamentCompleteEvent
@@ -52,12 +55,14 @@ async def _main() -> None:
     # (no conversation history carried over between games).
 
     def player_factory(participant: TournamentParticipant) -> Player:
-        provider = create_provider(
-            participant.provider_name,
-            participant.model.id,
-            config.providers,
-            supports_vision_override=participant.model.supports_vision,
-        )
+        provider = None
+        if participant.provider_name != "engine":
+            provider = create_provider(
+                participant.provider_name,
+                participant.model.id,
+                config.providers,
+                supports_vision_override=participant.model.supports_vision,
+            )
         return create_player(
             participant.provider_name,
             participant.display_name,
@@ -66,6 +71,8 @@ async def _main() -> None:
             config.game.move_timeout,
             config.game.max_output_tokens,
             config.game.reasoning_effort,
+            participant.model.id,
+            config.engines.get(participant.model.id),
         )
 
     # ── Create and run the tournament ────────────────────────────────── #
@@ -76,10 +83,26 @@ async def _main() -> None:
         f"[bold]{len(participants)}[/] participants…[/]\n"
     )
 
-    async for event in tournament.run(participants, config, player_factory):
-        display_tournament_event(event)
-        if isinstance(event, TournamentCompleteEvent) and config.game.save_pgn:
-            _save_all_pgns(tournament, config)
+    rating_store: RatingStore | None = None
+    rating_manager: RatingManager | None = None
+    if config.ratings.enabled:
+        rating_store = RatingStore(config.ratings.database_path)
+        rating_manager = RatingManager(rating_store, config)
+
+    try:
+        async for event in tournament.run(
+            participants,
+            config,
+            player_factory,
+            rating_manager=rating_manager,
+            tournament_id=str(uuid4()),
+        ):
+            display_tournament_event(event)
+            if isinstance(event, TournamentCompleteEvent) and config.game.save_pgn:
+                _save_all_pgns(tournament, config)
+    finally:
+        if rating_store is not None:
+            rating_store.close()
 
 
 def _save_all_pgns(tournament, config) -> None:

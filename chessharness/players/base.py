@@ -48,9 +48,20 @@ class GameState:
 class Player(ABC):
     """Abstract base class for all chess players."""
 
-    def __init__(self, name: str, player_type: str = "unknown") -> None:
+    def __init__(
+        self,
+        name: str,
+        player_type: str = "unknown",
+        competitor_id: str | None = None,
+    ) -> None:
         self.name = name
         self.player_type = player_type
+        self.competitor_id = competitor_id or f"{player_type}:{name.strip().casefold()}"
+        self.is_rating_anchor = False
+        self.anchor_rating: float | None = None
+
+    async def close(self) -> None:
+        """Release player-owned resources. Most players have nothing to close."""
 
     @abstractmethod
     async def get_move(

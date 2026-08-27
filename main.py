@@ -20,6 +20,8 @@ from chessharness.game import run_game
 from chessharness.cli.display import display_event, console
 from chessharness.cli.selector import select_players
 from chessharness.conv_logger import ConversationLogger
+from chessharness.ratings.manager import RatingManager
+from chessharness.ratings.store import RatingStore
 
 
 async def _main(stop_event: asyncio.Event) -> None:
@@ -36,19 +38,18 @@ async def _main(stop_event: asyncio.Event) -> None:
     # Interactive model selection
     white_sel, black_sel = select_players(config)
 
-    # Build providers (LLM API clients)
-    white_provider = create_provider(
-        white_sel.provider_name,
-        white_sel.model.id,
-        config.providers,
-        supports_vision_override=white_sel.model.supports_vision,
-    )
-    black_provider = create_provider(
-        black_sel.provider_name,
-        black_sel.model.id,
-        config.providers,
-        supports_vision_override=black_sel.model.supports_vision,
-    )
+    def _provider_for(selection):
+        if selection.provider_name == "engine":
+            return None
+        return create_provider(
+            selection.provider_name,
+            selection.model.id,
+            config.providers,
+            supports_vision_override=selection.model.supports_vision,
+        )
+
+    white_provider = _provider_for(white_sel)
+    black_provider = _provider_for(black_sel)
 
     # Build players
     white_player = create_player(
@@ -59,6 +60,8 @@ async def _main(stop_event: asyncio.Event) -> None:
         config.game.move_timeout,
         config.game.max_output_tokens,
         config.game.reasoning_effort,
+        white_sel.model.id,
+        config.engines.get(white_sel.model.id),
     )
     black_player = create_player(
         black_sel.provider_name,
@@ -68,6 +71,8 @@ async def _main(stop_event: asyncio.Event) -> None:
         config.game.move_timeout,
         config.game.max_output_tokens,
         config.game.reasoning_effort,
+        black_sel.model.id,
+        config.engines.get(black_sel.model.id),
     )
 
     # Attach per-player conversation loggers (shared game_id keeps filenames paired)
@@ -84,8 +89,48 @@ async def _main(stop_event: asyncio.Event) -> None:
     console.print(f"[dim]Logs: {log_dir}/game_{game_id}_white_*.log / ..._black_*.log[/]\n")
 
     # Run game — consume events and display them
-    async for event in run_game(config, white_player, black_player, stop_event=stop_event):
-        display_event(event)
+    rating_store = (
+        RatingStore(config.ratings.database_path)
+        if config.ratings.enabled
+        else None
+    )
+    rating_manager = (
+        RatingManager(rating_store, config)
+        if rating_store is not None
+        else None
+    )
+
+    try:
+        if rating_manager is None:
+            async for event in run_game(
+                config,
+                white_player,
+                black_player,
+                stop_event=stop_event,
+            ):
+                display_event(event)
+        else:
+            # Preserve the regular event stream while recording the immutable
+            # game ledger and applying one simultaneous Glicko-2 update.
+            batch_id = f"cli:{game_id}"
+            async for event in rating_manager.recorded_game(
+                config,
+                white_player,
+                black_player,
+                batch_id=batch_id,
+                game_id=batch_id,
+                stop_event=stop_event,
+                auto_finalize=True,
+                metadata={"surface": "cli"},
+            ):
+                display_event(event)
+    finally:
+        await asyncio.gather(
+            *(player.close() for player in (white_player, black_player) if callable(getattr(player, "close", None))),
+            return_exceptions=True,
+        )
+        if rating_store is not None:
+            rating_store.close()
 
 
 def main() -> None:

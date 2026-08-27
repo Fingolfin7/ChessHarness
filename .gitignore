@@ -4,6 +4,7 @@ config.yaml
 # Generated game files
 games/
 logs/
+data/
 
 # Claude
 .claude/
