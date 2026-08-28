@@ -68,27 +68,81 @@ uv run python tournament_main.py
 
 ## Setup
 
+Requirements: Python 3.13+, [uv](https://docs.astral.sh/uv/), and the current
+Node.js LTS release.
+
+### Windows quick start
+
+```powershell
+Copy-Item config.example.yaml config.yaml
+uv sync
+npm.cmd --prefix frontend install
+```
+
+Add your provider credentials to `config.yaml`, then double-click
+`start_chessharness.cmd`. The launcher starts the API on port 8000, starts the
+Vite UI on port 5173, and opens **http://localhost:5173**. The first launch
+also installs frontend packages if they are missing. Press Ctrl+C in the
+launcher window to stop both servers; answer `Y` if Windows asks whether to
+terminate the batch job.
+
+You can run the same development stack from a terminal on any platform:
+
 ```bash
-cp config.example.yaml config.yaml   # add your API keys
-uv run python scripts/dev.py         # backend on :8000 + Vite on :5173
+cp config.example.yaml config.yaml  # skip when config.yaml already exists
+uv run python scripts/dev.py        # backend on :8000 + Vite on :5173
 ```
 
 Then open **http://localhost:5173**.
 
 ---
 
-### Optional Stockfish benchmark
+### Stockfish 18 benchmark
 
 Stockfish is not bundled with ChessHarness. Download an official build from
-[stockfishchess.org](https://stockfishchess.org/download/), then set the
-executable path in the `engines` section of `config.yaml` (use forward slashes
-or a quoted Windows path):
+[stockfishchess.org](https://stockfishchess.org/download/). On a typical modern
+Windows x64 machine, use the AVX2 build and install it as:
+
+```text
+%LOCALAPPDATA%\Programs\Stockfish\18\stockfish.exe
+```
+
+The executable is about 114 MB after extraction. No GUI or tablebase download
+is required. Create the directory above, copy the AVX2 executable into it, and
+rename the executable to `stockfish.exe`. Then add the directory to your user
+`PATH` from PowerShell without replacing existing entries:
+
+```powershell
+$stockfishDir = Join-Path $env:LOCALAPPDATA "Programs\Stockfish\18"
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($userPath -split ";") -notcontains $stockfishDir) {
+    [Environment]::SetEnvironmentVariable(
+        "Path", "$stockfishDir;$userPath", "User"
+    )
+}
+```
+
+Open a new terminal and verify the installation:
+
+```powershell
+stockfish
+# At the Stockfish prompt, enter: uci
+# Confirm that it prints "id name Stockfish 18" and "uciok", then enter: quit
+```
+
+The Windows launcher also prepends that recommended directory for its own
+process, so it works immediately even when an already-running Explorer process
+has not picked up the new user `PATH` yet.
+
+Configure a versioned benchmark profile in `config.yaml`. Using `stockfish`
+relies on `PATH`; an absolute path such as
+`C:/Users/you/AppData/Local/Programs/Stockfish/18/stockfish.exe` also works:
 
 ```yaml
 engines:
-  stockfish-1600:
-    name: "Stockfish 1600"
-    path: "C:/tools/stockfish/stockfish.exe"
+  stockfish-18-1600:
+    name: "Stockfish 18 (1600)"
+    path: "stockfish"
     uci_elo: 1600
     nodes: 100000
     threads: 1
@@ -99,7 +153,8 @@ The profile uses Stockfish's UCI strength target and a fixed node budget. The
 `1600` value is therefore a reproducible nominal anchor, not a claim of an
 official human/FIDE rating. A profile must point to a UCI binary that supports
 `UCI_LimitStrength`, `UCI_Elo`, `Threads`, and `Hash`.
-Treat the profile ID as versioned: change it when upgrading the engine binary.
+Treat the profile ID as versioned: for example, change `stockfish-18-1600` when
+upgrading the engine binary so historical results retain their original anchor.
 
 ## Configuration
 

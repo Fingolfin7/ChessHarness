@@ -39,8 +39,10 @@ game:
 # Reproducible local engine benchmarks. The Stockfish executable itself is not
 # bundled; install it separately or point this path at an official binary.
 engines:
-  stockfish-1600:
-    name: "Stockfish 1600"
+  # Include the engine release in the profile ID so a future upgrade creates
+  # a new benchmark identity instead of silently changing the old anchor.
+  stockfish-18-1600:
+    name: "Stockfish 18 (1600)"
     path: "stockfish"
     uci_elo: 1600
     # Fixed nodes make benchmark strength insensitive to concurrent CPU load.
