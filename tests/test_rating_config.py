@@ -55,6 +55,7 @@ ratings:
 @pytest.mark.parametrize(
     "section",
     [
+        "game:\n  move_timeout: 0",
         "engines:\n  bad:\n    nodes: 0",
         "ratings:\n  tau: 0",
         "ratings:\n  benchmark_rd: 0",

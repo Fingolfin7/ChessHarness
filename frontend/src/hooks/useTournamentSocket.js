@@ -34,6 +34,7 @@ const INITIAL_MATCH = {
   status: 'pending',
   result: null,
   gameOverReason: null,
+  error: null,
   advancingName: null,
   fen: 'start',
   lastMove: null,
@@ -125,6 +126,20 @@ function reducer(state, action) {
         totalRounds: action.total_rounds,
       }
 
+    case 'TournamentStoppedEvent':
+      return {
+        ...state,
+        status: 'idle',
+        matches: Object.fromEntries(
+          Object.entries(state.matches).map(([matchId, match]) => [
+            matchId,
+            match.status === 'live'
+              ? { ...match, status: 'stopped', thinking: false }
+              : match,
+          ]),
+        ),
+      }
+
     case 'RoundStartEvent': {
       const pairings = action.pairings.map(([matchId, whiteName, blackName]) => ({
         matchId, whiteName, blackName,
@@ -185,6 +200,23 @@ function reducer(state, action) {
             result: action.result?.game_result,
             gameOverReason: prev.gameOverReason,   // preserve reason captured from GameOverEvent
             advancingName: action.advancing_name,
+          },
+        },
+      }
+    }
+
+    case 'MatchFailedEvent': {
+      const prev = state.matches[action.match_id] || INITIAL_MATCH
+      const error = action.error || action.message || 'Match failed.'
+      return {
+        ...state,
+        matches: {
+          ...state.matches,
+          [action.match_id]: {
+            ...prev,
+            status: 'failed',
+            thinking: false,
+            error,
           },
         },
       }

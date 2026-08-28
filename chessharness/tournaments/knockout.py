@@ -24,16 +24,22 @@ from uuid import uuid4
 from chessharness.config import Config, GameConfig
 from chessharness.events import GameOverEvent
 from chessharness.game import run_game
+from chessharness.players.base import (
+    DEFAULT_PLAYER_CLOSE_TIMEOUT,
+    close_players_bounded,
+)
 from chessharness.tournaments.base import (
     DrawHandling,
     MatchResult,
     PlayerFactory,
     StandingEntry,
     Tournament,
+    TournamentMatchError,
     TournamentParticipant,
 )
 from chessharness.tournaments.events import (
     MatchCompleteEvent,
+    MatchFailedEvent,
     MatchGameEvent,
     MatchStartEvent,
     RoundCompleteEvent,
@@ -141,14 +147,25 @@ class KnockoutTournament(Tournament):
                         active_count -= 1
                     else:
                         yield event
+                        if isinstance(event, MatchFailedEvent):
+                            # The match puts this event in the queue before
+                            # re-raising.  Raise now so a failed match cannot
+                            # leave the round waiting on unrelated siblings.
+                            raise TournamentMatchError(
+                                event.match_id,
+                                event.round_num,
+                                event.error,
+                            )
 
                 task_results = await asyncio.gather(*tasks)
             finally:
                 unfinished = [task for task in tasks if not task.done()]
                 for task in unfinished:
                     task.cancel()
-                if unfinished:
-                    await asyncio.gather(*unfinished, return_exceptions=True)
+                # Gather every task, including the one that failed, so its
+                # exception is retrieved and no task is left orphaned.
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
 
             # Collect results from tasks (each returns MatchResult and winner).
             for result, winner in task_results:
@@ -282,13 +299,14 @@ class KnockoutTournament(Tournament):
                         if isinstance(game_event, GameOverEvent):
                             game_over = game_event
                 finally:
-                    await asyncio.gather(
-                        *(
-                            player.close()
+                    await close_players_bounded(
+                        (
+                            player
                             for player in (white_player, black_player)
                             if callable(getattr(player, "close", None))
                         ),
-                        return_exceptions=True,
+                        timeout=DEFAULT_PLAYER_CLOSE_TIMEOUT,
+                        log=logger,
                     )
 
                 if game_over is None:
@@ -378,8 +396,18 @@ class KnockoutTournament(Tournament):
                 )
                 return final_result, winner_participant
 
-        except BaseException as exc:
+        except asyncio.CancelledError as exc:
             primary_error = exc
+            raise
+        except Exception as exc:
+            primary_error = exc
+            await out_queue.put(
+                MatchFailedEvent(
+                    match_id=match_id,
+                    round_num=round_num,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            )
             raise
         finally:
             if not rating_finalized:

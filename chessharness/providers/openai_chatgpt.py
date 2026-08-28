@@ -15,7 +15,13 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from chessharness.providers.base import LLMProvider, Message, ProviderError
+from chessharness.providers.base import (
+    DEFAULT_NETWORK_TIMEOUT,
+    LLMProvider,
+    Message,
+    ProviderError,
+    close_resource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +48,9 @@ class OpenAIChatGPTProvider(LLMProvider):
         self._client = AsyncOpenAI(
             api_key=bearer_token,
             base_url=self._base_url,
+            timeout=DEFAULT_NETWORK_TIMEOUT,
         )
+        self._closed = False
         self._last_response_metadata: dict[str, object] | None = None
 
     @property
@@ -55,12 +63,24 @@ class OpenAIChatGPTProvider(LLMProvider):
     def last_response_metadata(self) -> dict[str, object] | None:
         return self._last_response_metadata
 
-    def _rebuild_client(self, new_token: str) -> None:
-        self._current_token = new_token
-        self._client = AsyncOpenAI(
+    async def _rebuild_client(self, new_token: str) -> None:
+        old_client = self._client
+        new_client = AsyncOpenAI(
             api_key=new_token,
             base_url=self._base_url,
+            timeout=DEFAULT_NETWORK_TIMEOUT,
         )
+        self._current_token = new_token
+        self._client = new_client
+        self._closed = False
+        try:
+            await close_resource(old_client)
+        except Exception:
+            logger.warning(
+                "Failed to close replaced ChatGPT/Codex client [model=%s]",
+                self._model,
+                exc_info=True,
+            )
 
     async def _ensure_fresh_token(self, force: bool = False) -> None:
         if self._token_refresher is None:
@@ -68,7 +88,15 @@ class OpenAIChatGPTProvider(LLMProvider):
         token = await self._token_refresher(force)
         if token and token != self._current_token:
             logger.info("Refreshed ChatGPT/Codex token; rebuilding client.")
-            self._rebuild_client(token)
+            await self._rebuild_client(token)
+
+    async def close(self) -> None:
+        """Close the provider's persistent HTTP connection pool."""
+
+        if self._closed:
+            return
+        await close_resource(self._client)
+        self._closed = True
 
     async def complete(
         self,
@@ -143,6 +171,18 @@ class OpenAIChatGPTProvider(LLMProvider):
                     self._last_response_metadata = _response_event_metadata(event)
         except Exception as exc:
             raise ProviderError("openai_chatgpt", str(exc), cause=exc) from exc
+        finally:
+            # ``responses.create`` returns an AsyncStream rather than an
+            # ``async with`` context in this endpoint.  Ensure cancellation or
+            # an early consumer exit still releases its response connection.
+            try:
+                await close_resource(event_stream)
+            except Exception:
+                logger.warning(
+                    "Failed to close response stream [provider=openai_chatgpt model=%s]",
+                    self._model,
+                    exc_info=True,
+                )
 
     def _build_request_kwargs(
         self,

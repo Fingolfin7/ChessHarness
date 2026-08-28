@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ModelDropdown, { VisionIcon } from './ModelDropdown.jsx'
+import MoveTimeoutSetting from './MoveTimeoutSetting.jsx'
 import { providerLabel, compareProviderNames } from '../utils/providerLabels.js'
 
 export default function ModelPicker({
@@ -24,6 +25,7 @@ export default function ModelPicker({
     annotatePgn: false,
     maxOutputTokens: 5120,
     reasoningEffort: 'default',
+    moveTimeout: 120,
     startingFen: '',
   })
 
@@ -112,6 +114,7 @@ export default function ModelPicker({
         annotate_pgn: settings.annotatePgn,
         max_output_tokens: settings.maxOutputTokens,
         reasoning_effort: settings.reasoningEffort === 'default' ? null : settings.reasoningEffort,
+        move_timeout: settings.moveTimeout,
         starting_fen: settings.startingFen.trim() || null,
       }
     )
@@ -494,6 +497,11 @@ export default function ModelPicker({
                   }
                 />
               </div>
+              <MoveTimeoutSetting
+                id="move-timeout"
+                value={settings.moveTimeout}
+                onChange={moveTimeout => setSettings(s => ({ ...s, moveTimeout }))}
+              />
               <div className="settings-row">
                 <label className="settings-label" htmlFor="reasoning-effort">Reasoning Effort</label>
                 <select

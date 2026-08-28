@@ -76,6 +76,24 @@ class MatchCompleteEvent:
 
 
 @dataclass(frozen=True)
+class MatchFailedEvent:
+    """Fired when a match task fails before it can produce a result.
+
+    The event is emitted before the tournament re-raises the failure.  This
+    gives live consumers a match-scoped diagnostic while preserving the
+    existing tournament-level ``error`` handling for the exception itself.
+    """
+
+    match_id: str
+    round_num: int
+    error: str
+    # False for formats such as round robin where a match does not eliminate
+    # anyone.  Keeping this here lets consumers render the same failure event
+    # for both tournament formats without guessing from the tournament type.
+    is_elimination: bool = True
+
+
+@dataclass(frozen=True)
 class RoundCompleteEvent:
     """Fired after all matches in a round are decided."""
 
@@ -101,6 +119,7 @@ TournamentEvent = (
     | MatchStartEvent
     | MatchGameEvent
     | MatchCompleteEvent
+    | MatchFailedEvent
     | RoundCompleteEvent
     | TournamentCompleteEvent
 )

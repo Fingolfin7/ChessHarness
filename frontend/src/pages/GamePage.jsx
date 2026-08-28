@@ -2,6 +2,7 @@
 import ModelPicker from '../components/ModelPicker.jsx'
 import GameView from '../components/GameView.jsx'
 import { useAppContext } from '../context/AppContext.jsx'
+import { applyGameFailure } from '../utils/gameFailure.js'
 
 const INITIAL_STATE = {
   phase: 'setup',
@@ -159,9 +160,12 @@ function applyEvent(state, event) {
         },
       }
 
+    case 'GameFailureEvent':
+      return applyGameFailure(state, event)
+
     case 'error':
       console.error('[WebSocket error]', event.message)
-      return { ...state, error: event.message, thinking: false }
+      return applyGameFailure(state, event)
 
     default:
       return state

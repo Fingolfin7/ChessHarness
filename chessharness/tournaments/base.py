@@ -112,6 +112,16 @@ class StandingEntry:
 PlayerFactory = Callable[[TournamentParticipant], Player]
 
 
+class TournamentMatchError(RuntimeError):
+    """A match failed and the tournament cannot safely continue its round."""
+
+    def __init__(self, match_id: str, round_num: int, message: str) -> None:
+        self.match_id = match_id
+        self.round_num = round_num
+        self.message = message
+        super().__init__(f"Match {match_id} in round {round_num} failed: {message}")
+
+
 class Tournament(ABC):
     """
     Abstract base class for all tournament formats.
@@ -143,6 +153,7 @@ class Tournament(ABC):
             MatchStartEvent       — once per game (including rematches)
             MatchGameEvent        — once per GameEvent within a game
             MatchCompleteEvent    — once per decided match
+            MatchFailedEvent      — once when a match fails before completion
             RoundCompleteEvent    — once after all matches in a round finish
             TournamentCompleteEvent — once when the tournament ends
 

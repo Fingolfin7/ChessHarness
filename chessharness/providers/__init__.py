@@ -15,7 +15,12 @@ from __future__ import annotations
 from collections.abc import Callable, Awaitable
 
 from chessharness.config import ProviderConfig
-from chessharness.providers.base import LLMProvider, Message, ProviderError
+from chessharness.providers.base import (
+    LLMProvider,
+    Message,
+    ProviderError,
+    ProviderErrorKind,
+)
 from chessharness.providers.openai import OpenAIProvider
 from chessharness.providers.openai_chatgpt import OpenAIChatGPTProvider
 from chessharness.providers.anthropic import AnthropicProvider
@@ -25,6 +30,7 @@ __all__ = [
     "LLMProvider",
     "Message",
     "ProviderError",
+    "ProviderErrorKind",
     "OpenAIProvider",
     "OpenAIChatGPTProvider",
     "AnthropicProvider",

@@ -86,6 +86,17 @@ also installs frontend packages if they are missing. Press Ctrl+C in the
 launcher window to stop both servers; answer `Y` if Windows asks whether to
 terminate the batch job.
 
+The launcher runs the backend as a single Uvicorn process by default. This is
+required for async Stockfish subprocess support on Windows. For UI-only
+backend development, explicitly opt into reload before launching:
+
+```powershell
+$env:CHESSHARNESS_RELOAD = "1"
+.\start_chessharness.cmd
+```
+
+Do not enable reload when playing Stockfish games on Windows.
+
 You can run the same development stack from a terminal on any platform:
 
 ```bash
@@ -209,6 +220,11 @@ Additional providers (`openai_chatgpt` / Codex and `copilot_chat`) follow the sa
 Notes:
 - `max_output_tokens` is a per-move/per-response setting, not a full-game budget.
 - For `openai_chatgpt` (Codex endpoint), `max_output_tokens` may be ignored because some Codex deployments reject a max-token parameter.
+- The Game and Tournament setup screens expose `game.move_timeout` as a preset
+  or custom per-turn wall-clock deadline (1 second to 1 hour). The deadline
+  covers the complete turn, including permitted retries or text fallback; it is
+  independent of `max_output_tokens`, so the configured model output capacity
+  is preserved.
 
 
 ---

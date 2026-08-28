@@ -16,10 +16,12 @@ from chessharness.tournaments.base import (
     PlayerFactory,
     StandingEntry,
     Tournament,
+    TournamentMatchError,
     TournamentParticipant,
 )
 from chessharness.tournaments.events import (
     MatchCompleteEvent,
+    MatchFailedEvent,
     MatchGameEvent,
     MatchStartEvent,
     RoundCompleteEvent,
@@ -41,6 +43,7 @@ __all__ = [
     "PlayerFactory",
     "StandingEntry",
     "Tournament",
+    "TournamentMatchError",
     "TournamentParticipant",
     # Events
     "TournamentEvent",
@@ -49,6 +52,7 @@ __all__ = [
     "MatchStartEvent",
     "MatchGameEvent",
     "MatchCompleteEvent",
+    "MatchFailedEvent",
     "RoundCompleteEvent",
     "TournamentCompleteEvent",
     "TournamentType",

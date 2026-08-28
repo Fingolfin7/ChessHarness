@@ -18,7 +18,13 @@ from typing import Any
 
 from openai import AsyncOpenAI, AuthenticationError as _OpenAIAuthError
 
-from chessharness.providers.base import LLMProvider, Message, ProviderError
+from chessharness.providers.base import (
+    DEFAULT_NETWORK_TIMEOUT,
+    LLMProvider,
+    Message,
+    ProviderError,
+    close_resource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,17 +88,37 @@ class OpenAIProvider(LLMProvider):
             api_key=api_key,
             base_url=base_url,
             default_headers=default_headers,
+            timeout=DEFAULT_NETWORK_TIMEOUT,
         )
+        self._closed = False
         self._last_response_metadata: dict[str, object] | None = None
 
-    def _rebuild_client(self, new_key: str) -> None:
-        """Recreate the AsyncOpenAI client with a refreshed token."""
-        self._current_key = new_key
-        self._client = AsyncOpenAI(
+    async def _rebuild_client(self, new_key: str) -> None:
+        """Recreate the AsyncOpenAI client with a refreshed token.
+
+        A token refresh replaces the HTTP client.  Close the old connection
+        pool after the replacement is ready so a failed constructor leaves the
+        currently usable client intact.
+        """
+        old_client = self._client
+        new_client = AsyncOpenAI(
             api_key=new_key,
             base_url=self._base_url,
             default_headers=self._default_headers,
+            timeout=DEFAULT_NETWORK_TIMEOUT,
         )
+        self._current_key = new_key
+        self._client = new_client
+        self._closed = False
+        try:
+            await close_resource(old_client)
+        except Exception:
+            logger.warning(
+                "Failed to close replaced client [provider=%s model=%s]",
+                self._provider_label,
+                self._model,
+                exc_info=True,
+            )
 
     async def _ensure_fresh_token(self, force: bool = False) -> None:
         """Call token_refresher and rebuild the client if the token changed."""
@@ -104,7 +130,15 @@ class OpenAIProvider(LLMProvider):
                 "Token refreshed — rebuilding client [provider=%s]",
                 self._provider_label,
             )
-            self._rebuild_client(new_key)
+            await self._rebuild_client(new_key)
+
+    async def close(self) -> None:
+        """Close the provider's persistent HTTP connection pool."""
+
+        if self._closed:
+            return
+        await close_resource(self._client)
+        self._closed = True
 
     @property
     def supports_vision(self) -> bool:

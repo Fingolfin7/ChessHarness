@@ -14,8 +14,13 @@ from chessharness.ratings.store import RatingStore
 
 
 class InvalidPlayer(Player):
-    def __init__(self, name: str, competitor_id: str) -> None:
-        super().__init__(name, "llm", competitor_id)
+    def __init__(
+        self,
+        name: str,
+        competitor_id: str,
+        player_type: str = "llm",
+    ) -> None:
+        super().__init__(name, player_type, competitor_id)
         self.closed = False
 
     async def get_move(self, state: GameState, chunk_queue=None) -> MoveResponse:
@@ -28,6 +33,28 @@ class InvalidPlayer(Player):
 class ProviderFailurePlayer(InvalidPlayer):
     async def get_move(self, state: GameState, chunk_queue=None) -> MoveResponse:
         raise ProviderError("test", "temporary outage")
+
+
+class TimeoutPlayer(InvalidPlayer):
+    async def get_move(self, state: GameState, chunk_queue=None) -> MoveResponse:
+        raise ProviderError(
+            "test",
+            "request timed out",
+            kind="timeout",
+            retryable=False,
+        )
+
+
+class ProviderEmptyPlayer(InvalidPlayer):
+    async def get_move(self, state: GameState, chunk_queue=None) -> MoveResponse:
+        return MoveResponse(
+            raw="",
+            move="",
+            provider_metadata={
+                "finish_reason": "stop",
+                "usage": {"completion_tokens": 0},
+            },
+        )
 
 
 class RatingManagerTests(unittest.IsolatedAsyncioTestCase):
@@ -88,22 +115,95 @@ class RatingManagerTests(unittest.IsolatedAsyncioTestCase):
         white = ProviderFailurePlayer("White", "llm:test:provider-fail")
         black = InvalidPlayer("Black", "llm:test:opponent")
 
-        _ = [event async for event in self.manager.recorded_game(
-            self.config,
-            white,
-            black,
-            batch_id="single-provider-error",
-            game_id="game-provider-error",
-            auto_finalize=True,
-        )]
+        with self.assertRaises(ProviderError):
+            _ = [event async for event in self.manager.recorded_game(
+                self.config,
+                white,
+                black,
+                batch_id="single-provider-error",
+                game_id="game-provider-error",
+                auto_finalize=True,
+            )]
 
         game = self.store.get_game("game-provider-error")
         assert game is not None
         self.assertFalse(game.rated)
         self.assertIn("provider", (game.unrated_reason or "").lower())
+        self.assertEqual(game.termination, "provider_error")
         self.assertEqual(
             self.store.get_rating_changes("single-provider-error"),
             [],
+        )
+
+    async def test_llm_timeout_against_engine_records_provider_error(self) -> None:
+        white = TimeoutPlayer("Model", "llm:test:timeout")
+        black = InvalidPlayer(
+            "Stockfish",
+            "engine:test:stockfish",
+            player_type="engine",
+        )
+
+        with self.assertRaises(ProviderError):
+            _ = [event async for event in self.manager.recorded_game(
+                self.config,
+                white,
+                black,
+                batch_id="single-llm-timeout-vs-engine",
+                game_id="game-llm-timeout-vs-engine",
+                auto_finalize=True,
+            )]
+
+        game = self.store.get_game("game-llm-timeout-vs-engine")
+        assert game is not None
+        self.assertEqual(game.termination, "provider_error")
+        self.assertEqual(game.attempt_failures[-1]["failure_kind"], "provider_timeout")
+
+    async def test_engine_timeout_records_engine_error(self) -> None:
+        white = TimeoutPlayer(
+            "Stockfish",
+            "engine:test:timeout",
+            player_type="engine",
+        )
+        black = InvalidPlayer("Model", "llm:test:opponent")
+
+        with self.assertRaises(ProviderError):
+            _ = [event async for event in self.manager.recorded_game(
+                self.config,
+                white,
+                black,
+                batch_id="single-engine-timeout",
+                game_id="game-engine-timeout",
+                auto_finalize=True,
+            )]
+
+        game = self.store.get_game("game-engine-timeout")
+        assert game is not None
+        self.assertEqual(game.termination, "engine_error")
+        self.assertEqual(game.attempt_failures[-1]["failure_kind"], "engine_error")
+
+    async def test_zero_token_provider_completion_is_unrated(self) -> None:
+        white = ProviderEmptyPlayer("White", "llm:test:provider-empty")
+        black = InvalidPlayer("Black", "llm:test:opponent-empty")
+
+        with self.assertRaises(ProviderError):
+            _ = [event async for event in self.manager.recorded_game(
+                self.config,
+                white,
+                black,
+                batch_id="single-provider-empty",
+                game_id="game-provider-empty",
+                auto_finalize=True,
+            )]
+
+        game = self.store.get_game("game-provider-empty")
+        assert game is not None
+        self.assertFalse(game.rated)
+        self.assertIn("provider", (game.unrated_reason or "").lower())
+        self.assertTrue(
+            all(
+                failure["failure_kind"] == "provider_empty_response"
+                for failure in game.attempt_failures
+            )
         )
 
     async def test_human_and_interrupted_game_is_recorded_unrated(self) -> None:

@@ -19,6 +19,7 @@ import logging
 import logging.handlers
 import os
 import shutil
+import sys
 import threading
 import urllib.error
 import urllib.parse
@@ -38,9 +39,15 @@ from chessharness.auth_store import load_auth_tokens, save_auth_tokens
 from chessharness.config import ModelEntry, ProviderConfig, load_config
 from chessharness.conv_logger import ConversationLogger
 from chessharness.game import run_game
+from chessharness.logging_context import CorrelationFilter
 from chessharness.players import QueuedHumanPlayer, create_player
+from chessharness.players.base import (
+    DEFAULT_PLAYER_CLOSE_TIMEOUT,
+    close_players_bounded,
+)
 from chessharness.players.llm import LLMPlayer
 from chessharness.providers import create_provider
+from chessharness.providers.base import ProviderError, close_resource
 from chessharness.ratings.manager import RatingManager
 from chessharness.ratings.ruleset import STANDARD_RULESET_HASH
 from chessharness.ratings.store import RatingStore
@@ -53,29 +60,49 @@ auth_tokens = load_auth_tokens()
 # --------------------------------------------------------------------------- #
 
 _LOG_FILE = Path("./logs/chessharness.log")
-_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def _configure_logging() -> None:
     """Set practical defaults: concise app logs, noisy deps at warning+."""
     app_level_name = os.getenv("CHESSHARNESS_LOG_LEVEL", "INFO").upper()
     app_level = getattr(logging, app_level_name, logging.INFO)
+    explicit_file_setting = os.getenv("CHESSHARNESS_LOG_TO_FILE")
+    write_file = (
+        explicit_file_setting.lower() not in {"0", "false", "no", "off"}
+        if explicit_file_setting is not None
+        else "pytest" not in sys.modules
+    )
 
     formatter = logging.Formatter(
-        "%(asctime)s  %(levelname)-8s  %(name)s  %(message)s"
+        "%(asctime)s  %(levelname)-8s  %(name)s  "
+        "[game=%(game_id)s tournament=%(tournament_id)s match=%(match_id)s] %(message)s"
     )
+    correlation_filter = CorrelationFilter()
     stream_handler = logging.StreamHandler()
-    file_handler = logging.handlers.RotatingFileHandler(
-        _LOG_FILE,
-        maxBytes=2 * 1024 * 1024,  # 2 MB
-        backupCount=3,
-        encoding="utf-8",
-    )
-    stream_handler.setFormatter(formatter)
-    file_handler.setFormatter(formatter)
+    managed_handlers: list[logging.Handler] = [stream_handler]
+    if write_file:
+        _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        managed_handlers.append(
+            logging.handlers.RotatingFileHandler(
+                _LOG_FILE,
+                maxBytes=2 * 1024 * 1024,  # 2 MB
+                backupCount=3,
+                encoding="utf-8",
+            )
+        )
+    for handler in managed_handlers:
+        handler.setFormatter(formatter)
+        handler.addFilter(correlation_filter)
+        setattr(handler, "_chessharness_managed", True)
 
     chess_logger = logging.getLogger("chessharness")
     chess_logger.setLevel(app_level)
-    chess_logger.handlers = [stream_handler, file_handler]
+    for old_handler in list(chess_logger.handlers):
+        if getattr(old_handler, "_chessharness_managed", False):
+            chess_logger.removeHandler(old_handler)
+            old_handler.close()
+    chess_logger.addHandler(stream_handler)
+    if write_file:
+        chess_logger.addHandler(managed_handlers[1])
     chess_logger.propagate = False
 
     for noisy_name in (
@@ -91,8 +118,6 @@ def _configure_logging() -> None:
     ):
         logging.getLogger(noisy_name).setLevel(logging.WARNING)
 
-
-_configure_logging()
 logger = logging.getLogger("chessharness")
 
 
@@ -142,12 +167,22 @@ _MAX_GAME_REPLAY_EVENTS = 2000
 _MAX_SINGLE_GAME_REPLAY_EVENTS = 2000
 _MAX_SUBSCRIBER_QUEUE = 500
 _PROVISIONAL_RD = 110.0
+# UI guardrails keep an accidentally pasted value from creating an effectively
+# unbounded request while still allowing long reasoning runs.  The model's
+# max_output_tokens remains independent and is never reduced here.
+_UI_MOVE_TIMEOUT_MIN = 1
+_UI_MOVE_TIMEOUT_MAX = 3600
+_UI_MOVE_TIMEOUT_PRESETS = (60, 120, 180, 300, 600, 1200)
 _CODEX_AUTH_PATH = Path.home() / ".codex" / "auth.json"
 
 
 @app.on_event("startup")
 async def _startup() -> None:
     """On server start, migrate any stale auth data from older installs."""
+    # Keep import-time app/test usage side-effect free.  Tests therefore do
+    # not create or rotate the production log file, while an actual ASGI
+    # server still gets the same stream/file logging once its lifespan starts.
+    _configure_logging()
     changed = False
 
     # Migrate old provider key names to copilot_chat.
@@ -466,21 +501,22 @@ async def _verify_token_detailed(
     if not prov or not prov.auth_token:
         return False, "auth", "Missing token"
     token = prov.auth_token
+    probe_client: object | None = None
     try:
         async with asyncio.timeout(8):
             if provider_name == "anthropic":
                 import anthropic as _anthropic
-                client = _anthropic.AsyncAnthropic(api_key=token)
-                await client.models.list()
+                probe_client = _anthropic.AsyncAnthropic(api_key=token)
+                await probe_client.models.list()  # type: ignore[union-attr]
             elif provider_name == _OPENAI_CHATGPT_PROVIDER:
                 from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=token, base_url=prov.base_url)
+                probe_client = AsyncOpenAI(api_key=token, base_url=prov.base_url)
                 probe_model = (
                     prov.models[0].id
                     if prov.models
                     else "gpt-5-codex"
                 )
-                await client.responses.create(
+                await probe_client.responses.create(  # type: ignore[union-attr]
                     model=probe_model,
                     input=[{"role": "user", "content": [{"type": "input_text", "text": "ping"}]}],
                     max_output_tokens=8,
@@ -504,21 +540,27 @@ async def _verify_token_detailed(
                         return True, None, None
                 except Exception:
                     from openai import AsyncOpenAI
-                    client = AsyncOpenAI(
+                    probe_client = AsyncOpenAI(
                         api_key=token,
                         base_url=prov.base_url,
                         default_headers=_copilot_chat_openai_headers(),
                     )
-                    await client.models.list()
+                    await probe_client.models.list()  # type: ignore[union-attr]
             else:
                 # openai, kimi, groq, openrouter, â€¦
                 from openai import AsyncOpenAI
-                client = AsyncOpenAI(api_key=token, base_url=prov.base_url)
-                await client.models.list()
+                probe_client = AsyncOpenAI(api_key=token, base_url=prov.base_url)
+                await probe_client.models.list()  # type: ignore[union-attr]
         return True, None, None
     except Exception as exc:
         kind = "auth" if _looks_like_auth_error(exc) else "upstream"
         return False, kind, str(exc)
+    finally:
+        if probe_client is not None:
+            try:
+                await close_resource(probe_client)
+            except Exception:
+                logger.warning("Provider token probe cleanup failed", exc_info=True)
 
 
 def _to_json(data: dict) -> str:
@@ -675,6 +717,11 @@ def get_config():
         "annotate_pgn": config.game.annotate_pgn,
         "max_output_tokens": config.game.max_output_tokens,
         "reasoning_effort": config.game.reasoning_effort,
+        "move_timeout": config.game.move_timeout,
+        "move_timeout_min": _UI_MOVE_TIMEOUT_MIN,
+        "move_timeout_max": _UI_MOVE_TIMEOUT_MAX,
+        "move_timeout_presets": list(_UI_MOVE_TIMEOUT_PRESETS),
+        "starting_fen": config.game.starting_fen,
         "ratings": {
             "enabled": config.ratings.enabled,
             "pool_id": config.ratings.pool_id,
@@ -1287,6 +1334,7 @@ class _TournamentBroadcaster:
             "status": "pending",
             "result": None,
             "gameOverReason": None,
+            "error": None,
             "advancingName": None,
             "fen": "start",
             "lastMove": None,
@@ -1366,6 +1414,7 @@ class _TournamentBroadcaster:
                     "plies": [],
                     "moves": [],
                     "thinking": False,
+                    "error": None,
                 }
             )
             game_state = {
@@ -1482,6 +1531,22 @@ class _TournamentBroadcaster:
             }
             return
 
+        if event_type == "TournamentStoppedEvent":
+            self._tournament_state["status"] = "idle"
+            matches = dict(self._tournament_state.get("matches") or {})
+            for match_id, match in matches.items():
+                if match.get("status") == "live":
+                    updated = dict(match)
+                    updated["status"] = "stopped"
+                    updated["thinking"] = False
+                    matches[match_id] = updated
+            self._tournament_state["matches"] = matches
+            for game_state in self._game_state.values():
+                if game_state.get("phase") == "playing":
+                    game_state["phase"] = "over"
+                    game_state["thinking"] = False
+            return
+
         if event_type == "RoundStartEvent":
             pairings = [
                 {"matchId": m, "whiteName": w, "blackName": b}
@@ -1515,6 +1580,7 @@ class _TournamentBroadcaster:
                     "roundNum": payload.get("round_num"),
                     "gameNum": payload.get("game_num") or 1,
                     "status": "live",
+                    "error": None,
                 }
             )
             matches[match_id] = prev
@@ -1544,6 +1610,35 @@ class _TournamentBroadcaster:
             )
             matches[match_id] = prev
             self._tournament_state["matches"] = matches
+            return
+
+        if event_type == "MatchFailedEvent":
+            match_id = payload.get("match_id")
+            if not match_id:
+                return
+            message = payload.get("error") or payload.get("message") or "Match failed."
+            matches = dict(self._tournament_state["matches"])
+            prev = dict(matches.get(match_id) or self._initial_match_state(match_id))
+            prev.update(
+                {
+                    "status": "failed",
+                    "thinking": False,
+                    "error": message,
+                }
+            )
+            matches[match_id] = prev
+            self._tournament_state["matches"] = matches
+
+            # A failure may happen before the first GameStartEvent.  Preserve
+            # the diagnostic in the per-match snapshot so a detail view that
+            # opens after the failure still explains why no board is live.
+            game_state = dict(
+                self._game_state.get(match_id) or self._initial_game_state()
+            )
+            game_state["phase"] = "over"
+            game_state["thinking"] = False
+            game_state["error"] = message
+            self._game_state[match_id] = game_state
             return
 
         if event_type == "RoundCompleteEvent":
@@ -1670,11 +1765,14 @@ class _TournamentBroadcaster:
     def collected_pgns(self) -> list[str]:
         return list(self._pgns)
 
-    def stop(self) -> bool:
-        """Cancel the running tournament task. Returns True if there was something to cancel."""
+    async def stop(self) -> bool:
+        """Cancel and fully drain the tournament before reporting it stopped."""
         if self._task and not self._task.done():
-            self._task.cancel()
+            task = self._task
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
             self.status = {"state": "idle"}
+            await self._broadcast_all({"type": "TournamentStoppedEvent"})
             return True
         return False
 
@@ -1759,7 +1857,7 @@ def tournament_pgn():
 @app.post("/api/tournament/stop")
 async def tournament_stop():
     """Stop the running tournament immediately."""
-    stopped = _tournament_broadcaster.stop()
+    stopped = await _tournament_broadcaster.stop()
     return {"ok": True, "was_running": stopped}
 
 
@@ -1845,7 +1943,10 @@ async def tournament_start(payload: dict):
         if "max_output_tokens" in ui_settings:
             overrides["max_output_tokens"] = max(1, int(ui_settings["max_output_tokens"]))
         if "move_timeout" in ui_settings:
-            overrides["move_timeout"] = max(1, int(ui_settings["move_timeout"]))
+            overrides["move_timeout"] = min(
+                _UI_MOVE_TIMEOUT_MAX,
+                max(_UI_MOVE_TIMEOUT_MIN, int(ui_settings["move_timeout"])),
+            )
         if "reasoning_effort" in ui_settings:
             effort = ui_settings["reasoning_effort"]
             if effort in ("low", "medium", "high", None, "", "default", "auto", "none"):
@@ -1881,6 +1982,14 @@ async def tournament_start(payload: dict):
             return openai_chatgpt_refresher
         return None
 
+    # Tournament matches create fresh player instances through this factory,
+    # so attach a conversation logger here as well as for single games.  The
+    # tournament core intentionally keeps the factory surface small and does
+    # not pass match colour; a unique per-instance id still makes concurrent
+    # request/response traces available without risking files being shared by
+    # two matches.
+    tournament_log_group = uuid4().hex
+
     def player_factory(participant: TournamentParticipant):
         provider = None
         if participant.provider_name != "engine":
@@ -1891,7 +2000,7 @@ async def tournament_start(payload: dict):
                 supports_vision_override=participant.model.supports_vision,
                 token_refresher=_token_refresher_for(participant.provider_name),
             )
-        return create_player(
+        player = create_player(
             participant.provider_name,
             participant.display_name,
             provider,
@@ -1902,6 +2011,14 @@ async def tournament_start(payload: dict):
             participant.model.id,
             config.engines.get(participant.model.id),
         )
+        if isinstance(player, LLMPlayer):
+            player._logger = ConversationLogger(
+                log_dir=Path("./logs"),
+                game_id=f"tournament_{tournament_log_group}_{uuid4().hex[:12]}",
+                player_name=player.name,
+                color=f"participant_{participant.seed}",
+            )
+        return player
 
     tournament = create_tournament(tournament_type, draw_handling=draw_handling)
     _tournament_broadcaster.start(participants, tournament_config, player_factory, tournament)
@@ -1994,6 +2111,11 @@ def _apply_ui_game_settings(ui_settings: dict) -> object:
             overrides["annotate_pgn"] = bool(ui_settings["annotate_pgn"])
         if "max_output_tokens" in ui_settings:
             overrides["max_output_tokens"] = max(1, int(ui_settings["max_output_tokens"]))
+        if "move_timeout" in ui_settings:
+            overrides["move_timeout"] = min(
+                _UI_MOVE_TIMEOUT_MAX,
+                max(_UI_MOVE_TIMEOUT_MIN, int(ui_settings["move_timeout"])),
+            )
         if "reasoning_effort" in ui_settings:
             effort = ui_settings["reasoning_effort"]
             if effort in ("low", "medium", "high", None, "", "default", "auto", "none"):
@@ -2319,7 +2441,18 @@ class _SingleGameBroadcaster:
                 "pgn": payload.get("pgn"),
             }
             return
+        if event_type == "GameFailureEvent":
+            self._state["phase"] = "over"
+            self._state["thinking"] = False
+            self._state["awaitingHumanInput"] = None
+            self._state["error"] = (
+                payload.get("error")
+                or payload.get("message")
+                or "Game failed."
+            )
+            return
         if event_type == "error":
+            self._state["phase"] = "over"
             self._state["error"] = payload.get("message")
             self._state["thinking"] = False
             self._state["awaitingHumanInput"] = None
@@ -2364,36 +2497,26 @@ class _SingleGameBroadcaster:
 
     async def _run(self, start_payload: dict, stop_event: asyncio.Event) -> None:
         session = None
-        try:
-            session = await _build_single_game_players(start_payload)
-            self._session = session
-            batch_id = f"single:{uuid4()}"
-            game_id = str(uuid4())
-            if config.ratings.enabled:
-                manager = _get_rating_manager()
-                event_stream = manager.recorded_game(
-                    session.config,
-                    session.white_player,
-                    session.black_player,
-                    batch_id=batch_id,
-                    game_id=game_id,
-                    stop_event=stop_event,
-                    auto_finalize=True,
-                    metadata={"source": "web-single-game"},
-                )
-            else:
-                event_stream = run_game(
-                    session.config,
-                    session.white_player,
-                    session.black_player,
-                    stop_event,
-                )
+        manager = None
+        batch_id = None
+        game_id = None
+        rating_update_published = False
+        last_failure_kind: str | None = None
 
-            async for event in event_stream:
-                payload = {"type": type(event).__name__, **dataclasses.asdict(event)}
-                await self._broadcast(payload)
+        async def _publish_rating_update(*, suppress_errors: bool = False) -> None:
+            """Publish the ledger result even when the game stream failed."""
 
-            if config.ratings.enabled:
+            nonlocal rating_update_published
+            if (
+                rating_update_published
+                or not config.ratings.enabled
+                or manager is None
+                or batch_id is None
+                or game_id is None
+            ):
+                return
+
+            try:
                 game = manager.store.get_game(game_id)
                 changes = manager.store.get_rating_changes(
                     batch_id, algorithm_version=manager.projection_id
@@ -2422,18 +2545,117 @@ class _SingleGameBroadcaster:
                         ],
                     }
                 )
+                rating_update_published = True
+            except Exception:
+                # The game failure remains the primary UI diagnostic.  Keep a
+                # store/readback problem from replacing it with a second error.
+                logger.exception(
+                    "Unable to publish single-game rating update [game_id=%s batch_id=%s]",
+                    game_id,
+                    batch_id,
+                )
+                if not suppress_errors:
+                    raise
+
+        try:
+            session = await _build_single_game_players(start_payload)
+            self._session = session
+            batch_id = f"single:{uuid4()}"
+            game_id = str(uuid4())
+            if config.ratings.enabled:
+                manager = _get_rating_manager()
+                event_stream = manager.recorded_game(
+                    session.config,
+                    session.white_player,
+                    session.black_player,
+                    batch_id=batch_id,
+                    game_id=game_id,
+                    stop_event=stop_event,
+                    auto_finalize=True,
+                    metadata={"source": "web-single-game"},
+                )
+            else:
+                event_stream = run_game(
+                    session.config,
+                    session.white_player,
+                    session.black_player,
+                    stop_event,
+                )
+
+            async for event in event_stream:
+                payload = {"type": type(event).__name__, **dataclasses.asdict(event)}
+                if payload["type"] == "InvalidMoveEvent":
+                    last_failure_kind = str(payload.get("failure_kind") or "unknown")
+                elif payload["type"] == "MoveAppliedEvent":
+                    # Do not let a recovered failure on an earlier turn taint
+                    # the source classification of a later infrastructure error.
+                    last_failure_kind = None
+                await self._broadcast(payload)
+
+            await _publish_rating_update()
         except Exception as exc:
             logger.error("Single game error: %s", exc, exc_info=True)
-            await self._broadcast({"type": "error", "message": str(exc)})
+            message = str(exc) or type(exc).__name__
+            if batch_id is not None and game_id is not None:
+                if last_failure_kind == "engine_error":
+                    # Engine timeouts are represented by ProviderError for
+                    # compatibility with the shared retry pipeline. The
+                    # emitted attempt event identifies the actual source.
+                    failure_kind = "engine_error"
+                    failure_reason = "engine_error"
+                elif (
+                    last_failure_kind is not None
+                    and last_failure_kind.startswith("provider_")
+                ):
+                    failure_kind = (
+                        str(exc.kind)
+                        if isinstance(exc, ProviderError)
+                        else last_failure_kind
+                    )
+                    failure_reason = "provider_error"
+                elif isinstance(exc, ProviderError):
+                    failure_kind = str(exc.kind)
+                    failure_reason = "provider_error"
+                elif session is not None and any(
+                    getattr(player, "player_type", None) == "engine"
+                    for player in (session.white_player, session.black_player)
+                ):
+                    failure_kind = "engine_error"
+                    failure_reason = "engine_error"
+                else:
+                    failure_kind = "infrastructure_error"
+                    failure_reason = "infrastructure_error"
+                await self._broadcast(
+                    {
+                        "type": "GameFailureEvent",
+                        "game_id": game_id,
+                        "batch_id": batch_id,
+                        "error": message,
+                        "message": message,
+                        "failure_kind": failure_kind,
+                        "reason": failure_reason,
+                        "result": "*",
+                        "winner_name": None,
+                        "pgn": "",
+                        "total_moves": len(self._state.get("plies") or []),
+                    }
+                )
+                await _publish_rating_update(suppress_errors=True)
+            else:
+                # Player construction may fail before a game/batch exists. It
+                # still needs to leave the single-game UI in a terminal state.
+                await self._broadcast(
+                    {
+                        "type": "error",
+                        "message": message,
+                    }
+                )
         finally:
             if session is not None:
-                await asyncio.gather(
-                    *(
-                        player.close()
-                        for player in (session.white_player, session.black_player)
-                        if callable(getattr(player, "close", None))
-                    ),
-                    return_exceptions=True,
+                await close_players_bounded(
+                    (session.white_player, session.black_player),
+                    timeout=DEFAULT_PLAYER_CLOSE_TIMEOUT,
+                    log=logger,
                 )
             self._session = None
 

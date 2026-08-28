@@ -111,12 +111,72 @@ class LLMPlayer(Player):
         self._max_output_tokens = max_output_tokens
         self._reasoning_effort = reasoning_effort
         self._history: list[Message] = []
+        # A player instance belongs to one game. Once the provider explicitly
+        # rejects an image input, keep the rest of that game on text prompts
+        # instead of rediscovering the same incompatibility every turn.
+        self._vision_disabled_for_game = False
+        self._closed = False
+        self._closing = False
+        self._close_task: asyncio.Task[None] | None = None
+
+    async def close(self) -> None:
+        """Release the provider's persistent network client for this game."""
+
+        if self._closed:
+            return
+        self._closing = True
+        close_task = self._close_task
+        if close_task is None:
+            close_task = asyncio.create_task(self._close_provider())
+            self._close_task = close_task
+            close_task.add_done_callback(self._close_task_done)
+        # Shield the shared task so one cancelled cleanup waiter cannot abort
+        # the provider close for every other waiter (or leave a half-closed
+        # client behind). A caller may still be cancelled while waiting.
+        await asyncio.shield(close_task)
+
+    async def _close_provider(self) -> None:
+        try:
+            await self._provider.close()
+        except BaseException:
+            # A failed/cancelled provider close must not make this player look
+            # closed; a later cleanup attempt should be allowed to retry.
+            self._closing = False
+            raise
+        self._closed = True
+
+    def _close_task_done(self, task: asyncio.Task[None]) -> None:
+        if task is not self._close_task or self._closed:
+            return
+        # Consume an exception in the callback as a safety net for the case
+        # where every cleanup waiter was cancelled before the task finished.
+        # Awaiters still receive the original exception from the shared task.
+        if task.cancelled():
+            self._close_task = None
+            self._closing = False
+            return
+        try:
+            task.exception()
+        except BaseException:
+            pass
+        self._close_task = None
+        self._closing = False
+
+    def _ensure_open(self) -> None:
+        if self._closed or self._closing:
+            raise ProviderError(
+                self._provider.__class__.__name__,
+                "Player is closing or already closed; no further moves are allowed.",
+                kind="unknown",
+                retryable=False,
+            )
 
     async def get_move(
         self,
         state: GameState,
         chunk_queue: asyncio.Queue | None = None,
     ) -> MoveResponse:
+        self._ensure_open()
         messages = self._build_messages(state)
 
         if self._logger:
@@ -129,12 +189,19 @@ class LLMPlayer(Player):
 
         try:
             provider_result = await self._call_provider(messages, chunk_queue)
-        except ProviderError:
-            if any(m.image_bytes for m in messages):
+        except ProviderError as exc:
+            if (
+                any(m.image_bytes for m in messages)
+                and getattr(exc, "kind", None) == "image_unsupported"
+            ):
+                self._vision_disabled_for_game = True
                 logger.warning(
-                    "Vision call failed for %s - retrying with text board representation.",
+                    "Provider rejected image input; using text for the rest of the game "
+                    "[player=%s provider=%s]",
                     self.name,
+                    self._provider.__class__.__name__,
                 )
+                self._ensure_open()
                 messages = self._build_messages(state, force_text=True)
                 provider_result = await self._call_provider(messages, chunk_queue)
             else:
@@ -192,6 +259,7 @@ class LLMPlayer(Player):
         messages: list[Message],
         chunk_queue: asyncio.Queue | None,
     ) -> ProviderCallResult:
+        self._ensure_open()
         raw = ""
         chunk_count = 0
         try:
@@ -236,6 +304,7 @@ class LLMPlayer(Player):
             ) from exc
 
         provider_metadata = _provider_metadata(self._provider)
+        provider_metadata.setdefault("stream_chunk_count", chunk_count)
         logger.info(
             "Model stream completed [player=%s provider=%s chunks=%s raw_length=%s provider_metadata=%s]",
             self.name,
@@ -303,10 +372,23 @@ class LLMPlayer(Player):
         )
 
         provider_supports_vision = self._provider.supports_vision
-        image_bytes = state.board_image_bytes if provider_supports_vision and not force_text else None
+        image_bytes = (
+            state.board_image_bytes
+            if provider_supports_vision
+            and not force_text
+            and not self._vision_disabled_for_game
+            else None
+        )
         if state.board_image_bytes and not provider_supports_vision:
             logger.debug(
                 "Board image rendered but not attached because provider does not advertise vision support [player=%s provider=%s]",
+                self.name,
+                self._provider.__class__.__name__,
+            )
+        elif state.board_image_bytes and self._vision_disabled_for_game:
+            logger.debug(
+                "Board image omitted after an earlier image rejection "
+                "[player=%s provider=%s]",
                 self.name,
                 self._provider.__class__.__name__,
             )

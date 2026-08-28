@@ -286,6 +286,36 @@ class TournamentReplayTests(unittest.TestCase):
         self.assertEqual(match["plies"], ["e4"])
 
 
+class TournamentStopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stop_waits_for_runner_cleanup_and_broadcasts_idle(self) -> None:
+        broadcaster = web_app._TournamentBroadcaster()
+        started = asyncio.Event()
+        cleaned = asyncio.Event()
+
+        async def running_tournament() -> None:
+            started.set()
+            try:
+                await asyncio.Future()
+            finally:
+                await asyncio.sleep(0)
+                cleaned.set()
+
+        broadcaster._tournament_state["status"] = "running"
+        broadcaster._task = asyncio.create_task(running_tournament())
+        subscriber = broadcaster.subscribe()
+        await started.wait()
+
+        stopped = await broadcaster.stop()
+        payload = subscriber.get_nowait()
+
+        self.assertTrue(stopped)
+        self.assertTrue(cleaned.is_set())
+        self.assertTrue(broadcaster._task.done())
+        self.assertEqual(broadcaster.status, {"state": "idle"})
+        self.assertEqual(broadcaster._tournament_state["status"], "idle")
+        self.assertEqual(payload["type"], "TournamentStoppedEvent")
+
+
 class SingleGameReplayTests(unittest.TestCase):
 
     def test_single_game_resume_replays_full_log(self):

@@ -1,4 +1,5 @@
 import asyncio
+import time
 import unittest
 
 import chess
@@ -6,6 +7,7 @@ import chess.engine
 
 from chessharness.players.base import GameState
 from chessharness.players.engine import EnginePlayer
+from chessharness.game import _cancel_and_drain_move_task
 
 
 def _option(name: str, option_type: str, minimum=None, maximum=None):
@@ -69,6 +71,23 @@ class _FakeProtocol:
         self.quit_calls += 1
         if self.quit_error is not None:
             raise self.quit_error
+
+
+class _CancellationResistantProtocol(_FakeProtocol):
+    def __init__(self) -> None:
+        super().__init__()
+        self.play_started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def play(self, board, limit, *, info):
+        self.play_started.set()
+        while not self.release.is_set():
+            try:
+                await self.release.wait()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+        return await super().play(board, limit, info=info)
 
 
 class _FakeFactory:
@@ -174,6 +193,31 @@ class EnginePlayerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(protocol.quit_calls, 1)
         self.assertEqual(factory.transport.close_calls, 1)
+
+    async def test_bounded_cleanup_force_closes_a_stuck_engine_play(self) -> None:
+        protocol = _CancellationResistantProtocol()
+        factory = _FakeFactory(protocol)
+        player = EnginePlayer("SF", engine_factory=factory)
+        move_task = asyncio.create_task(player.get_move(_state()))
+
+        await asyncio.wait_for(protocol.play_started.wait(), timeout=1)
+        move_task.cancel()
+        await asyncio.wait_for(protocol.cancelled.wait(), timeout=1)
+
+        started = time.monotonic()
+        await asyncio.wait_for(
+            _cancel_and_drain_move_task(move_task, player),
+            timeout=2,
+        )
+        self.assertLess(time.monotonic() - started, 1.75)
+        self.assertEqual(factory.transport.close_calls, 1)
+        self.assertIsNone(player._transport)
+        self.assertIsNone(player._protocol)
+
+        protocol.release.set()
+        await asyncio.wait_for(move_task, timeout=1)
+        await player.close()
+        self.assertEqual(protocol.quit_calls, 0)
 
     async def test_startup_is_safe_under_concurrent_first_moves(self) -> None:
         protocol = _FakeProtocol()

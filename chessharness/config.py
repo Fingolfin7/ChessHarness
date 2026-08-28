@@ -216,6 +216,8 @@ def _validate(config: Config) -> None:
         raise ValueError("game.max_retries must be >= 1")
     if config.game.max_output_tokens < 1:
         raise ValueError("game.max_output_tokens must be >= 1")
+    if config.game.move_timeout < 1:
+        raise ValueError("game.move_timeout must be >= 1")
     for profile in config.engines.values():
         if profile.uci_elo < 1:
             raise ValueError("engine uci_elo must be >= 1")

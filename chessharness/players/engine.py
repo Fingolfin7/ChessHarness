@@ -201,6 +201,22 @@ class EnginePlayer(Player):
                 if transport is not None:
                     transport.close()
 
+    async def force_close(self) -> None:
+        """Terminate the engine transport without waiting for ``play``.
+
+        ``get_move`` deliberately holds ``_lifecycle_lock`` around the UCI
+        request because the protocol is stateful.  A broken engine can ignore
+        cancellation while inside ``protocol.play()``, which means the normal
+        ``close`` method cannot acquire that lock.  Closing the transport is
+        the only bounded escape hatch in that situation; detach the handles
+        first so a later normal cleanup cannot wait on the same protocol.
+        """
+        transport = self._transport
+        self._transport = None
+        self._protocol = None
+        if transport is not None:
+            transport.close()
+
     @staticmethod
     async def _discard_engine(transport: Any, protocol: Any) -> None:
         """Best-effort cleanup for an engine that failed during startup."""

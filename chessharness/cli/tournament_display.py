@@ -19,6 +19,7 @@ from rich.text import Text
 from chessharness.cli.display import display_event
 from chessharness.tournaments.events import (
     MatchCompleteEvent,
+    MatchFailedEvent,
     MatchGameEvent,
     MatchStartEvent,
     RoundCompleteEvent,
@@ -45,6 +46,8 @@ def display_tournament_event(event: TournamentEvent) -> None:
             display_event(event.game_event)
         case MatchCompleteEvent():
             _match_complete(event)
+        case MatchFailedEvent():
+            _match_failed(event)
         case RoundCompleteEvent():
             _round_complete(event)
         case TournamentCompleteEvent():
@@ -127,6 +130,12 @@ def _match_complete(event: MatchCompleteEvent) -> None:
             f"[dim]({r.game_result})[/]"
         )
     console.print(f"\n  {summary}")
+
+
+def _match_failed(event: MatchFailedEvent) -> None:
+    console.print(
+        f"\n  [bold red]Match {event.match_id} failed:[/] [red]{event.error}[/]"
+    )
 
 
 def _round_complete(event: RoundCompleteEvent) -> None:

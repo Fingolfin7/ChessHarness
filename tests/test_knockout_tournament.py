@@ -9,13 +9,16 @@ from __future__ import annotations
 import asyncio
 import math
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from chessharness.config import Config, GameConfig, ModelEntry
 from chessharness.players.base import GameState, MoveResponse, Player
 from chessharness.tournaments import KnockoutTournament, TournamentParticipant
-from chessharness.tournaments.base import DrawHandling
+from chessharness.tournaments.base import DrawHandling, TournamentMatchError
 from chessharness.tournaments.events import (
     MatchCompleteEvent,
+    MatchFailedEvent,
     MatchStartEvent,
     RoundCompleteEvent,
     RoundStartEvent,
@@ -57,6 +60,21 @@ class MockPlayer(Player):
     async def get_move(self, state: GameState, chunk_queue=None) -> MoveResponse:
         move = state.legal_moves_uci[0]
         return MoveResponse(raw=move, move=move, reasoning="")
+
+
+class _HangingClosePlayer:
+    player_type = "llm"
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.close_started = asyncio.Event()
+        self.release_close = asyncio.Event()
+        self.closed = asyncio.Event()
+
+    async def close(self) -> None:
+        self.close_started.set()
+        await self.release_close.wait()
+        self.closed.set()
 
 
 def mock_player_factory(p: TournamentParticipant) -> Player:
@@ -282,6 +300,93 @@ class TestValidation(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "at least 2"):
             async for _ in tournament.run([], FAST_GAME_CONFIG, mock_player_factory):
                 pass
+
+
+class TestFailureHandling(unittest.IsolatedAsyncioTestCase):
+    async def test_match_failure_is_reported_without_waiting_for_siblings(self):
+        """A failed match must stop the round while another match is blocked."""
+        participants = make_participants(4)
+        sibling_cancelled = asyncio.Event()
+
+        async def failing_or_blocked_game(config, white, black):
+            if {white.name, black.name} == {"Alpha", "Delta"}:
+                raise RuntimeError("engine unavailable")
+            try:
+                await asyncio.Event().wait()
+            finally:
+                sibling_cancelled.set()
+            yield  # pragma: no cover - keeps this an async generator
+
+        def simple_player_factory(participant):
+            return SimpleNamespace(name=participant.display_name)
+
+        tournament = KnockoutTournament(draw_handling="seed")
+        events = []
+        with patch(
+            "chessharness.tournaments.knockout.run_game",
+            new=failing_or_blocked_game,
+        ):
+            stream = tournament.run(participants, FAST_GAME_CONFIG, simple_player_factory)
+            events.extend([await stream.__anext__(), await stream.__anext__()])
+
+            with self.assertRaisesRegex(TournamentMatchError, r"R1-M1.*engine unavailable"):
+                while True:
+                    event = await asyncio.wait_for(stream.__anext__(), timeout=1)
+                    events.append(event)
+                    if isinstance(event, MatchFailedEvent):
+                        # The failure event is delivered before the generator
+                        # raises the tournament-level error.
+                        await stream.__anext__()
+
+            await asyncio.wait_for(sibling_cancelled.wait(), timeout=1)
+
+        self.assertTrue(any(isinstance(event, MatchFailedEvent) for event in events))
+
+    async def test_cancellation_is_bounded_when_player_close_hangs(self) -> None:
+        participants = make_participants(2)
+        game_started = asyncio.Event()
+        players: list[_HangingClosePlayer] = []
+
+        async def blocked_game(config, white, black):
+            game_started.set()
+            await asyncio.Future()
+            yield  # pragma: no cover - keeps this an async generator
+
+        def player_factory(participant):
+            player = _HangingClosePlayer(participant.display_name)
+            players.append(player)
+            return player
+
+        tournament = KnockoutTournament(draw_handling="seed")
+
+        async def consume() -> None:
+            async for _ in tournament.run(
+                participants,
+                FAST_GAME_CONFIG,
+                player_factory,
+            ):
+                pass
+
+        with (
+            patch("chessharness.tournaments.knockout.run_game", new=blocked_game),
+            patch(
+                "chessharness.tournaments.knockout.DEFAULT_PLAYER_CLOSE_TIMEOUT",
+                0.01,
+            ),
+        ):
+            task = asyncio.create_task(consume())
+            await asyncio.wait_for(game_started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=0.5)
+
+        self.assertEqual(len(players), 2)
+        self.assertTrue(all(player.close_started.is_set() for player in players))
+        for player in players:
+            player.release_close.set()
+        await asyncio.gather(
+            *(asyncio.wait_for(player.closed.wait(), timeout=1) for player in players)
+        )
 
 
 # --------------------------------------------------------------------------- #

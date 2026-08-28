@@ -61,11 +61,14 @@ export default function BracketPanel({ open, onClose, matches, standings, winner
                 {match.whiteName || '?'}
               </span>
               <span className="tc-bracket-vs">
-                {match.result || (match.status === 'live' ? '●' : '—')}
+                {match.result || (match.status === 'live' ? '●' : match.status === 'failed' ? 'FAILED' : '—')}
               </span>
               <span className={match.advancingName === match.blackName ? 'tc-bracket-winner' : ''}>
                 {match.blackName || '?'}
               </span>
+              {match.status === 'failed' && match.error && (
+                <span className="tc-match-error" title={match.error}>!</span>
+              )}
             </div>
           ))}
         </div>

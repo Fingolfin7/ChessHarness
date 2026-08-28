@@ -203,6 +203,9 @@ function TournamentSidebar({ status, tournamentType, participantNames, currentRo
                     ? <span className="tc-match-forfeit" title="Forfeited: max retries exceeded">forfeit</span>
                     : m.result && <span className="tc-match-result">{m.result === '1/2-1/2' ? '½–½' : m.result}</span>
                 )}
+                {m.status === 'failed' && (
+                  <span className="tc-match-error" title={m.error || 'Match failed.'}>failed</span>
+                )}
               </div>
             ))}
           </div>

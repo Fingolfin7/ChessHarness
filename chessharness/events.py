@@ -27,6 +27,9 @@ GameOverReason = Literal[
 PlayerType = Literal["llm", "human", "engine", "unknown"]
 AttemptFailureKind = Literal[
     "provider_error",
+    "provider_timeout",
+    "provider_empty_response",
+    "provider_image_unsupported",
     "engine_error",
     "empty_model_output",
     "illegal_move",

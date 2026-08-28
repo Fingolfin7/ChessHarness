@@ -4,7 +4,7 @@
  * Shows:
  *   - Mini chessboard (live FEN via react-chessboard)
  *   - Player names (white on bottom, black on top, Lichess-style)
- *   - Status chip: LIVE (pulsing) | DONE (with result) | BYE | PENDING
+ *   - Status chip: LIVE (pulsing) | DONE (with result) | FAILED | BYE | PENDING
  *   - Advancing name badge when match is complete
  *
  * Clicking the card navigates to the GameDetail view.
@@ -23,6 +23,9 @@ function StatusChip({ status, result, gameOverReason }) {
     }
     const label = result === '1/2-1/2' ? '½–½' : result || 'DONE'
     return <span className="tc-chip tc-chip--done">{label}</span>
+  }
+  if (status === 'failed') {
+    return <span className="tc-chip tc-chip--failed">FAILED</span>
   }
   return <span className="tc-chip tc-chip--pending">PENDING</span>
 }
@@ -44,7 +47,7 @@ export default function GameCard({ match, matchId, onClick }) {
 
   if (!match) return null
 
-  const { whiteName, blackName, status, result, gameOverReason, advancingName, fen, lastMove } = match
+  const { whiteName, blackName, status, result, gameOverReason, error, advancingName, fen, lastMove } = match
 
   const isBye = blackName === 'BYE'
 
@@ -54,18 +57,22 @@ export default function GameCard({ match, matchId, onClick }) {
 
   return (
     <div
-      className={`tc-card ${status === 'live' ? 'tc-card--live' : ''} ${status === 'complete' ? 'tc-card--done' : ''}`}
+      className={`tc-card ${status === 'live' ? 'tc-card--live' : ''} ${status === 'complete' ? 'tc-card--done' : ''} ${status === 'failed' ? 'tc-card--failed' : ''}`}
       onClick={() => !isBye && onClick(matchId)}
       role={isBye ? undefined : 'button'}
       tabIndex={isBye ? undefined : 0}
       onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && !isBye && onClick(matchId)}
-      aria-label={`Match ${matchId}: ${whiteName} vs ${blackName}`}
+      aria-label={`Match ${matchId}: ${whiteName} vs ${blackName}${status === 'failed' ? `, failed: ${error || 'unknown error'}` : ''}`}
     >
       {/* Match ID badge */}
       <div className="tc-card-header">
         <span className="tc-match-id">{matchId}</span>
         <StatusChip status={status} result={result} gameOverReason={gameOverReason} />
       </div>
+
+      {status === 'failed' && error && (
+        <div className="tc-card-error" title={error}>{error}</div>
+      )}
 
       {/* Black player (top) */}
       <div className={`tc-player tc-player--black ${status !== 'complete' && match.turn === 'black' && status === 'live' ? 'tc-player--active' : ''}`}>

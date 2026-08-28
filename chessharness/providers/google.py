@@ -17,7 +17,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
-from chessharness.providers.base import LLMProvider, Message, ProviderError
+from chessharness.providers.base import LLMProvider, Message, ProviderError, close_resource
 
 _VISION_PREFIXES = (
     # Current Gemini families are multimodal, including Gemini 3 preview models.
@@ -40,7 +40,22 @@ class GoogleProvider(LLMProvider):
         self._model_name = model
         self._supports_vision_override = supports_vision_override
         self._client = genai.Client(api_key=api_key)
+        self._closed = False
         self._last_response_metadata: dict[str, object] | None = None
+
+    async def close(self) -> None:
+        """Close both the async and sync transports owned by google-genai."""
+
+        if self._closed:
+            return
+        # google-genai deliberately keeps ``Client.close`` sync while the
+        # asynchronous transport is exposed as ``client.aio.aclose``.
+        try:
+            await close_resource(getattr(self._client, "aio", None))
+        finally:
+            # Always release the sync transport even if the async close fails.
+            await close_resource(self._client)
+        self._closed = True
 
     @property
     def supports_vision(self) -> bool:

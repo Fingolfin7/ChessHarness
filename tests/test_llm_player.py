@@ -3,7 +3,7 @@ import unittest
 
 from chessharness.players.base import GameState
 from chessharness.players.llm import LLMPlayer
-from chessharness.providers.base import LLMProvider, Message
+from chessharness.providers.base import LLMProvider, Message, ProviderError
 
 
 class _FakeProvider(LLMProvider):
@@ -13,6 +13,7 @@ class _FakeProvider(LLMProvider):
         self.last_messages: list[Message] | None = None
         self.last_stream_kwargs: dict | None = None
         self._last_response_metadata: dict[str, object] | None = None
+        self.closed = False
 
     @property
     def supports_vision(self) -> bool:
@@ -46,6 +47,32 @@ class _FakeProvider(LLMProvider):
         }
         for chunk in self._chunks:
             yield chunk
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class _ImageRejectingProvider(_FakeProvider):
+    def __init__(self) -> None:
+        super().__init__(supports_vision=True, chunks=[])
+        self.calls: list[list[Message]] = []
+
+    async def stream(
+        self,
+        messages: list[Message],
+        *,
+        max_tokens: int = 5120,
+        reasoning_effort: str | None = None,
+    ):
+        self.calls.append(messages)
+        if len(self.calls) == 1:
+            raise ProviderError(
+                "test",
+                "image input is not supported",
+                kind="image_unsupported",
+                retryable=False,
+            )
+        yield "## Reasoning\nok\n\n## Move\ne4\n"
 
 
 def _state(**overrides) -> GameState:
@@ -99,6 +126,23 @@ class LLMPlayerTests(unittest.IsolatedAsyncioTestCase):
 
         await player.get_move(_state())
         self.assertEqual(provider.last_stream_kwargs, {"max_tokens": 2048, "reasoning_effort": "high"})
+
+    async def test_close_delegates_to_provider(self) -> None:
+        provider = _FakeProvider(supports_vision=True, chunks=[])
+        player = LLMPlayer(name="P", provider=provider)
+
+        await player.close()
+
+        self.assertTrue(provider.closed)
+
+    async def test_empty_stream_records_zero_chunks_for_failure_classification(self) -> None:
+        provider = _FakeProvider(supports_vision=False, chunks=[])
+        player = LLMPlayer(name="P", provider=provider)
+
+        response = await player.get_move(_state())
+
+        self.assertEqual(response.raw, "")
+        self.assertEqual(response.provider_metadata["stream_chunk_count"], 0)
 
     async def test_long_reasoning_without_move_section_does_not_parse_prose_move(self) -> None:
         provider = _FakeProvider(
@@ -160,6 +204,25 @@ class LLMPlayerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(user.image_bytes)
         self.assertIn("Position (FEN)", user.content)
         self.assertIn("ASCII-BOARD", user.content)
+
+    async def test_image_rejection_switches_player_to_text_for_rest_of_game(self) -> None:
+        provider = _ImageRejectingProvider()
+        player = LLMPlayer(name="P", provider=provider)
+
+        await player.get_move(_state(board_image_bytes=b"first-image"))
+        await player.get_move(
+            _state(
+                board_image_bytes=b"second-image",
+                move_number=2,
+                move_history_san=["e4", "e5"],
+            )
+        )
+
+        self.assertEqual(len(provider.calls), 3)
+        self.assertIsNotNone(provider.calls[0][-1].image_bytes)
+        self.assertIsNone(provider.calls[1][-1].image_bytes)
+        self.assertIsNone(provider.calls[2][-1].image_bytes)
+        self.assertIn("Position (FEN)", provider.calls[2][-1].content)
 
 
 if __name__ == "__main__":

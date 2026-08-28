@@ -261,11 +261,20 @@ class RatingsApiTests(unittest.TestCase):
                 self.call_kwargs = kwargs
                 yield GameStartEvent(white_name="Alpha", black_name="Bravo")
 
+        class FakePlayer:
+            def __init__(self, name: str, competitor_id: str) -> None:
+                self.name = name
+                self.player_type = "llm"
+                self.competitor_id = competitor_id
+
+            async def close(self) -> None:
+                return None
+
         fake_manager = FakeManager()
         fake_session = SimpleNamespace(
             config=Config(game=GameConfig(), providers={}),
-            white_player=object(),
-            black_player=object(),
+            white_player=FakePlayer("Alpha", "llm:alpha"),
+            black_player=FakePlayer("Bravo", "llm:bravo"),
         )
 
         async def fake_build(payload):

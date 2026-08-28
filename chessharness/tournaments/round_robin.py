@@ -15,15 +15,21 @@ from uuid import uuid4
 from chessharness.config import Config
 from chessharness.events import GameOverEvent
 from chessharness.game import run_game
+from chessharness.players.base import (
+    DEFAULT_PLAYER_CLOSE_TIMEOUT,
+    close_players_bounded,
+)
 from chessharness.tournaments.base import (
     MatchResult,
     PlayerFactory,
     StandingEntry,
     Tournament,
+    TournamentMatchError,
     TournamentParticipant,
 )
 from chessharness.tournaments.events import (
     MatchCompleteEvent,
+    MatchFailedEvent,
     MatchGameEvent,
     MatchStartEvent,
     RoundCompleteEvent,
@@ -119,6 +125,15 @@ class RoundRobinTournament(Tournament):
                         active_count -= 1
                     else:
                         yield event
+                        if isinstance(event, MatchFailedEvent):
+                            # The match puts this event in the queue before
+                            # re-raising.  Raise now so a failed match cannot
+                            # leave the round waiting on unrelated siblings.
+                            raise TournamentMatchError(
+                                event.match_id,
+                                event.round_num,
+                                event.error,
+                            )
 
                 round_results = list(await asyncio.gather(*tasks))
             except BaseException as exc:
@@ -128,8 +143,10 @@ class RoundRobinTournament(Tournament):
                 unfinished = [task for task in tasks if not task.done()]
                 for task in unfinished:
                     task.cancel()
-                if unfinished:
-                    await asyncio.gather(*unfinished, return_exceptions=True)
+                # Gather every task, including the one that failed, so its
+                # exception is retrieved and no task is left orphaned.
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
                 if rating_manager is not None:
                     try:
                         await _finalize_rating_batch(rating_manager, rating_batch_id)
@@ -203,11 +220,12 @@ class RoundRobinTournament(Tournament):
                     batch_id=rating_batch_id,
                     game_id=f"{rating_batch_id}:match:{match_id}",
                     auto_finalize=False,
-                    metadata={
-                        "tournament_id": tournament_id,
-                        "tournament_type": "round_robin",
-                        "round_num": round_num,
-                    },
+                        metadata={
+                            "tournament_id": tournament_id,
+                            "tournament_type": "round_robin",
+                            "round_num": round_num,
+                            "match_id": match_id,
+                        },
                 )
                 if rating_manager is not None
                 else run_game(sub_config, white_player, black_player)
@@ -218,13 +236,14 @@ class RoundRobinTournament(Tournament):
                     if isinstance(game_event, GameOverEvent):
                         game_over = game_event
             finally:
-                await asyncio.gather(
-                    *(
-                        player.close()
+                await close_players_bounded(
+                    (
+                        player
                         for player in (white_player, black_player)
                         if callable(getattr(player, "close", None))
                     ),
-                    return_exceptions=True,
+                    timeout=DEFAULT_PLAYER_CLOSE_TIMEOUT,
+                    log=logger,
                 )
 
             if game_over is None:
@@ -268,6 +287,18 @@ class RoundRobinTournament(Tournament):
                 )
             )
             return result
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await out_queue.put(
+                MatchFailedEvent(
+                    match_id=match_id,
+                    round_num=round_num,
+                    error=f"{type(exc).__name__}: {exc}",
+                    is_elimination=False,
+                )
+            )
+            raise
         finally:
             await out_queue.put(None)
 

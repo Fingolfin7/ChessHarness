@@ -1050,6 +1050,30 @@ html, body, #root {
 
 .settings-number:focus { outline: none; border-color: var(--dark-sq); }
 
+.settings-timeout-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.settings-timeout-preset { max-width: 145px; }
+.settings-timeout-number { width: 84px; }
+.settings-timeout-unit {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.settings-timeout-summary {
+  margin: -0.2rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: right;
+}
+.settings-timeout-summary strong { color: var(--text); font-weight: 600; }
+
 .settings-select {
   background: var(--surface-3);
   border: 1px solid var(--border);
@@ -1531,11 +1555,13 @@ html, body, #root {
 .tc-match-dot--live     { background: #4caf50; }
 .tc-match-dot--complete { background: var(--text-dim); }
 .tc-match-dot--pending  { background: var(--border); }
+.tc-match-dot--failed   { background: var(--error); }
 
 .tc-match-players { flex: 1; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-match-vs      { color: var(--border); margin: 0 0.2rem; }
 .tc-match-result  { font-size: 0.75rem; color: var(--text-dim); flex-shrink: 0; }
 .tc-match-forfeit { font-size: 0.72rem; color: var(--error); flex-shrink: 0; opacity: 0.8; }
+.tc-match-error   { font-size: 0.72rem; color: var(--error); flex-shrink: 0; }
 
 .tc-sidebar-section-header {
   display: flex;
@@ -1640,6 +1666,7 @@ html, body, #root {
 .tc-card:focus  { outline: 2px solid var(--dark-sq); outline-offset: 2px; }
 .tc-card--live  { border-color: #4caf5066; }
 .tc-card--done  { opacity: 0.85; cursor: default; }
+.tc-card--failed { border-color: #e05c5c66; }
 .tc-card--live:hover { border-color: #4caf50; }
 
 .tc-card-header {
@@ -1672,6 +1699,16 @@ html, body, #root {
 .tc-chip--done    { color: var(--text-dim); border: 1px solid var(--border); }
 .tc-chip--pending { color: var(--text-dim); border: 1px solid var(--border); opacity: 0.5; }
 .tc-chip--forfeit { color: var(--error); border: 1px solid rgba(224,92,92,0.4); }
+.tc-chip--failed  { color: var(--error); border: 1px solid rgba(224,92,92,0.4); }
+
+.tc-card-error {
+  color: var(--error);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 @keyframes pulse-green {
   0%, 100% { opacity: 1; }
@@ -1798,6 +1835,7 @@ html, body, #root {
 .tc-bracket-match--live   { color: var(--text); }
 .tc-bracket-match--complete { color: var(--text-dim); }
 .tc-bracket-match--pending  { color: var(--text-dim); opacity: 0.6; }
+.tc-bracket-match--failed { color: var(--error); }
 
 .tc-bracket-match-id {
   font-size: 0.7rem;

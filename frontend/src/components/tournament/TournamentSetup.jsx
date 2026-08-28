@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppContext } from '../../context/AppContext.jsx'
 import ModelDropdown, { VisionIcon } from '../ModelDropdown.jsx'
+import MoveTimeoutSetting from '../MoveTimeoutSetting.jsx'
 
 const MAX_PLAYERS = 16
 const FORMAT_OPTIONS = [
@@ -67,6 +68,7 @@ export default function TournamentSetup() {
     annotatePgn: false,
     maxOutputTokens: 5120,
     reasoningEffort: 'default',
+    moveTimeout: 120,
     startingFen: '',
   })
   const [loading, setLoading] = useState(false)
@@ -82,6 +84,7 @@ export default function TournamentSetup() {
       annotatePgn: defaultSettings.annotatePgn,
       maxOutputTokens: defaultSettings.maxOutputTokens,
       reasoningEffort: defaultSettings.reasoningEffort,
+      moveTimeout: defaultSettings.moveTimeout,
     }))
   }, [benchmarkCompetitorId, defaultSettings])
 
@@ -126,6 +129,7 @@ export default function TournamentSetup() {
       annotatePgn: false,
       maxOutputTokens: 5120,
       reasoningEffort: 'default',
+      moveTimeout: 120,
       startingFen: '',
     })
     benchmarkApplied.current = true
@@ -194,8 +198,8 @@ export default function TournamentSetup() {
             annotate_pgn: settings.annotatePgn,
             max_output_tokens: settings.maxOutputTokens,
             reasoning_effort: settings.reasoningEffort,
+            move_timeout: settings.moveTimeout,
             starting_fen: settings.startingFen.trim() || null,
-            ...(benchmarkCompetitorId ? { move_timeout: 120 } : {}),
           },
         }),
       })
@@ -377,6 +381,15 @@ export default function TournamentSetup() {
               onChange={e => setSettings(s => ({ ...s, maxOutputTokens: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
             />
           </div>
+
+          <MoveTimeoutSetting
+            id="ts-move-timeout"
+            value={settings.moveTimeout}
+            onChange={moveTimeout => setSettings(s => ({ ...s, moveTimeout }))}
+            disabled={Boolean(benchmarkCompetitorId)}
+            rowClassName="ts-settings-row"
+            labelClassName="ts-settings-label"
+          />
 
           <div className="ts-settings-row">
             <label className="ts-settings-label" htmlFor="ts-reasoning">Reasoning Effort</label>

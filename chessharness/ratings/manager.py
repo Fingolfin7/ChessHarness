@@ -12,7 +12,13 @@ from uuid import uuid4
 from chessharness.config import Config
 from chessharness.events import GameEvent, GameOverEvent, InvalidMoveEvent, MoveAppliedEvent
 from chessharness.game import run_game
-from chessharness.players.base import Player
+from chessharness.logging_context import logging_context
+from chessharness.players.base import (
+    DEFAULT_PLAYER_CLOSE_TIMEOUT,
+    Player,
+    close_players_bounded,
+)
+from chessharness.providers.base import ProviderError
 from chessharness.ratings.batch import (
     CompetitorRating,
     RatedGame,
@@ -140,6 +146,40 @@ class RatingManager:
         auto_finalize: bool = False,
         metadata: dict[str, object] | None = None,
     ) -> AsyncIterator[GameEvent]:
+        """Run a recorded game with task-local correlation identifiers."""
+
+        resolved_game_id = game_id or str(uuid4())
+        game_metadata = dict(metadata or {})
+        with logging_context(
+            game_id=resolved_game_id,
+            batch_id=batch_id,
+            tournament_id=game_metadata.get("tournament_id"),
+            match_id=game_metadata.get("match_id"),
+        ):
+            async for event in self._recorded_game(
+                config,
+                white,
+                black,
+                batch_id=batch_id,
+                game_id=resolved_game_id,
+                stop_event=stop_event,
+                auto_finalize=auto_finalize,
+                metadata=game_metadata,
+            ):
+                yield event
+
+    async def _recorded_game(
+        self,
+        config: Config,
+        white: Player,
+        black: Player,
+        *,
+        batch_id: str,
+        game_id: str | None = None,
+        stop_event: asyncio.Event | None = None,
+        auto_finalize: bool = False,
+        metadata: dict[str, object] | None = None,
+    ) -> AsyncIterator[GameEvent]:
         """Run, record, and close one game while preserving the event stream."""
 
         game_uuid = game_id or str(uuid4())
@@ -176,14 +216,11 @@ class RatingManager:
         except BaseException as exc:
             caught = exc
         finally:
-            close_results = await asyncio.gather(
-                white.close(),
-                black.close(),
-                return_exceptions=True,
+            await close_players_bounded(
+                (white, black),
+                timeout=DEFAULT_PLAYER_CLOSE_TIMEOUT,
+                log=logger,
             )
-            for close_result in close_results:
-                if isinstance(close_result, BaseException):
-                    logger.warning("Player cleanup failed: %s", close_result)
 
             ruleset = evaluate_ruleset(config.game, config.ratings.pool_id)
             rated, unrated_reason = self._eligibility(
@@ -204,9 +241,20 @@ class RatingManager:
                 game_metadata["exception"] = f"{type(caught).__name__}: {caught}"
 
             result = terminal.result if terminal is not None else "*"
+            last_failure_kind = (
+                str(current_attempt_failures[-1].get("failure_kind"))
+                if current_attempt_failures
+                else None
+            )
             termination = (
                 terminal.reason
                 if terminal is not None
+                else "engine_error" if last_failure_kind == "engine_error"
+                else "provider_error" if (
+                    last_failure_kind is not None
+                    and last_failure_kind.startswith("provider_")
+                )
+                else "provider_error" if isinstance(caught, ProviderError)
                 else "engine_error" if any(p.player_type == "engine" for p in (white, black))
                 else "interrupted"
             )
@@ -259,6 +307,8 @@ class RatingManager:
             return False, "Games involving a human are not rated"
         if white.competitor_id == black.competitor_id:
             return False, "Self-play is not rated"
+        if isinstance(caught, ProviderError):
+            return False, "Provider or infrastructure failure"
         if caught is not None or terminal is None:
             return False, "Game did not reach a clean terminal result"
         if terminal.result not in {"1-0", "0-1", "1/2-1/2"}:

@@ -15,7 +15,13 @@ from typing import Any
 
 import anthropic
 
-from chessharness.providers.base import LLMProvider, Message, ProviderError
+from chessharness.providers.base import (
+    DEFAULT_NETWORK_TIMEOUT,
+    LLMProvider,
+    Message,
+    ProviderError,
+    close_resource,
+)
 
 _VISION_PREFIXES = (
     "claude-3",
@@ -34,8 +40,20 @@ class AnthropicProvider(LLMProvider):
     ) -> None:
         self._model = model
         self._supports_vision_override = supports_vision_override
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._client = anthropic.AsyncAnthropic(
+            api_key=api_key,
+            timeout=DEFAULT_NETWORK_TIMEOUT,
+        )
+        self._closed = False
         self._last_response_metadata: dict[str, object] | None = None
+
+    async def close(self) -> None:
+        """Close the provider's persistent HTTP connection pool."""
+
+        if self._closed:
+            return
+        await close_resource(self._client)
+        self._closed = True
 
     @property
     def supports_vision(self) -> bool:

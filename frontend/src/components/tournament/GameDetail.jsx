@@ -25,7 +25,8 @@ export default function GameDetail({ matchId, matchInfo, onBack, onStop }) {
   const { players, fen, lastMove, turn, thinking, reasoning,
           moves, plies, invalidAttempt, result, error, phase, connStatus } = state
 
-  const isOver = phase === 'over'
+  const displayError = error || matchInfo?.error
+  const isOver = phase === 'over' || matchInfo?.status === 'failed'
   const [viewIndex, setViewIndex] = useState(null)
   const [flipped, setFlipped] = useState(false)
 
@@ -106,7 +107,7 @@ export default function GameDetail({ matchId, matchInfo, onBack, onStop }) {
           {resultText(result)}
         </div>
       )}
-      {error && <div className="error-banner">{error}</div>}
+      {displayError && <div className="error-banner">{displayError}</div>}
 
       <div className="game-main">
         <div className="board-col">
