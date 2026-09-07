@@ -37,6 +37,7 @@ _VISION_PREFIXES = (
     "o3",
     "o4",
     "gpt-5",
+    "gpt-6",
     "kimi-vl",
     # OpenAI-compatible gateways (Copilot/OpenRouter/etc.) often expose
     # Claude/Gemini model IDs through Chat Completions.
@@ -55,7 +56,7 @@ def _is_reasoning_model(model: str) -> bool:
 
 
 def _supports_reasoning_effort(model: str) -> bool:
-    return _is_reasoning_model(model) or model.startswith("gpt-5")
+    return _is_reasoning_model(model) or model.startswith(("gpt-5", "gpt-6"))
 
 
 class OpenAIProvider(LLMProvider):

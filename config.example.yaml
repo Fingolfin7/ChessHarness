@@ -65,6 +65,9 @@ providers:
   openai:
     api_key: "YOUR_OPENAI_KEY"
     models:
+      - id: gpt-6-astra
+        name: "GPT-6 Astra"
+        supports_vision: true
       - id: gpt-5.6-sol
         name: "GPT-5.6 Sol"
         supports_vision: true
@@ -80,6 +83,9 @@ providers:
   openai_chatgpt:
     base_url: "https://chatgpt.com/backend-api/codex"
     models:
+      - id: "gpt-6-astra"
+        name: "GPT-6 Astra"
+        supports_vision: true
       - id: "gpt-5.6-sol"
         name: "GPT-5.6 Sol"
         supports_vision: true

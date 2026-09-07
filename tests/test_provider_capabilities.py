@@ -16,6 +16,10 @@ class ProviderCapabilityTests(unittest.TestCase):
         )
         self.assertTrue(provider.supports_vision)
 
+    def test_gpt_6_astra_supports_vision_by_model_id(self) -> None:
+        provider = OpenAIProvider(api_key="x", model="gpt-6-astra")
+        self.assertTrue(provider.supports_vision)
+
     def test_google_override_takes_precedence(self) -> None:
         provider = GoogleProvider(
             api_key="x",
@@ -43,4 +47,3 @@ class ProviderCapabilityTests(unittest.TestCase):
             supports_vision_override=False,
         )
         self.assertFalse(provider.supports_vision)
-

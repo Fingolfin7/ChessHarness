@@ -26,7 +26,7 @@ from chessharness.providers.base import (
 logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE_URL = "https://chatgpt.com/backend-api/codex"
-_VISION_PREFIXES = ("gpt-4o", "gpt-5", "o1", "o3", "o4")
+_VISION_PREFIXES = ("gpt-4o", "gpt-5", "gpt-6", "o1", "o3", "o4")
 
 
 class OpenAIChatGPTProvider(LLMProvider):
