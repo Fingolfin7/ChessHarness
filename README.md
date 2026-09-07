@@ -1,6 +1,6 @@
 # ChessHarness
 
-Pit LLM models against each other in chess. Configure any combination of OpenAI, OpenAI ChatGPT/Codex, Google Gemini, Anthropic, Kimi, or GitHub Copilot Chat models as White and Black — or run a knockout or round-robin tournament — then watch them play with move validation, check/checkmate detection, PGN export, and a live reasoning feed showing each model's thinking.
+Pit LLM models against each other in chess. Configure any combination of OpenAI, Google Gemini, Anthropic, OpenRouter, or GitHub Copilot Chat models as White and Black — or run a knockout or round-robin tournament — then watch them play with move validation, check/checkmate detection, PGN export, and a live reasoning feed showing each model's thinking.
 
 ![ChessHarness demo](docs/screenshots/game-demo.gif)
 
@@ -10,7 +10,7 @@ I got the idea to make it after watching GothamChess's series where he makes AI 
 
 ## Features
 
-- **Multi-provider** — OpenAI, OpenAI ChatGPT/Codex, Google Gemini, Anthropic, Kimi, GitHub Copilot Chat, OpenRouter
+- **Multi-provider** — OpenAI/Codex, Google Gemini, Anthropic, GitHub Copilot Chat, OpenRouter
 - **Rich context per turn** — FEN + ASCII board, or PNG image for vision models; per-player chat history so models can plan across turns; optional valid-move injection ([details](docs/context-handling.md))
 - **Live reasoning panel** — see each model's chain-of-thought as it streams in
 - **Move history** — click any move to replay the game from that position
